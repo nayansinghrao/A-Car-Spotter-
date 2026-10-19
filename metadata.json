@@ -1,0 +1,6 @@
+{
+  "name": "SPOTR",
+  "description": "Private two-person automotive spotting garage with number plate OCR, real-time shared sightings, maps, and filters.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

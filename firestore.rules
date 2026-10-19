@@ -1,0 +1,159 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function getGarage(garageId) {
+      return get(/databases/$(database)/documents/garages/$(garageId)).data;
+    }
+
+    function garageExists(garageId) {
+      return exists(/databases/$(database)/documents/garages/$(garageId));
+    }
+
+    function isGarageMember(garageId) {
+      return isAuthenticated() && garageExists(garageId) &&
+        (request.auth.uid in getGarage(garageId).memberUids);
+    }
+
+    function isGarageOwner(garageId) {
+      return isAuthenticated() && garageExists(garageId) &&
+        (request.auth.uid == getGarage(garageId).ownerUid);
+    }
+
+    function isValidUser(data) {
+      return data.uid is string &&
+        data.email is string &&
+        data.createdAt is timestamp &&
+        data.createdAt <= request.time &&
+        data.updatedAt is timestamp &&
+        data.updatedAt <= request.time;
+    }
+
+    function isValidGarage(data) {
+      return data.id is string &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+        data.ownerUid is string &&
+        data.memberUids is list &&
+        data.memberUids.size() >= 1 &&
+        data.memberUids.size() <= 2 &&
+        data.inviteCode is string &&
+        data.createdAt is timestamp &&
+        data.createdAt <= request.time &&
+        data.updatedAt is timestamp &&
+        data.updatedAt <= request.time;
+    }
+
+    function isValidJoinRequest(data) {
+      return data.id is string &&
+        data.garageId is string &&
+        data.uid is string &&
+        data.email is string &&
+        data.status in ['pending', 'approved', 'rejected'] &&
+        data.createdAt is timestamp &&
+        data.createdAt <= request.time;
+    }
+
+    function isValidSighting(data) {
+      return data.id is string &&
+        data.garageId is string &&
+        data.createdBy is string &&
+        data.category is string &&
+        data.brand is string &&
+        data.model is string &&
+        data.numberPlateNormalized is string &&
+        data.primaryImagePath is string &&
+        data.latitude is number &&
+        data.longitude is number &&
+        data.sightingDate is string &&
+        data.sightingTime is string &&
+        data.createdAt is timestamp &&
+        data.createdAt <= request.time &&
+        data.updatedAt is timestamp &&
+        data.updatedAt <= request.time;
+    }
+
+    // User profiles
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isOwner(userId) && isValidUser(request.resource.data);
+      allow delete: if false;
+    }
+
+    // Garages
+    match /garages/{garageId} {
+      allow read: if isAuthenticated() && (
+        (resource.data.memberUids.hasAny([request.auth.uid])) ||
+        (request.auth.uid == resource.data.ownerUid)
+      );
+
+      // Create new garage: must be owner, initially 1 member
+      allow create: if isAuthenticated() &&
+        request.resource.data.ownerUid == request.auth.uid &&
+        request.resource.data.memberUids.size() == 1 &&
+        request.resource.data.memberUids[0] == request.auth.uid &&
+        isValidGarage(request.resource.data);
+
+      // Only owner can update garage (e.g. approve second member, update name)
+      // Must not change ownerUid, and members must be max 2
+      allow update: if isAuthenticated() &&
+        resource.data.ownerUid == request.auth.uid &&
+        request.resource.data.ownerUid == resource.data.ownerUid &&
+        request.resource.data.memberUids.size() <= 2 &&
+        isValidGarage(request.resource.data);
+
+      // Only owner can delete garage
+      allow delete: if isAuthenticated() && resource.data.ownerUid == request.auth.uid;
+
+      // Join requests
+      match /joinRequests/{requestId} {
+        // Owner of the garage or the requesting user can read
+        allow read: if isAuthenticated() && (
+          isGarageOwner(garageId) || request.auth.uid == requestId
+        );
+
+        // User can submit a request for themselves
+        allow create: if isAuthenticated() &&
+          request.auth.uid == requestId &&
+          request.resource.data.uid == request.auth.uid &&
+          request.resource.data.garageId == garageId &&
+          request.resource.data.status == 'pending' &&
+          isValidJoinRequest(request.resource.data);
+
+        // Only garage owner can update request status (approve/reject)
+        allow update: if isGarageOwner(garageId) &&
+          isValidJoinRequest(request.resource.data);
+
+        // Requester or owner can delete request
+        allow delete: if isAuthenticated() && (
+          isGarageOwner(garageId) || request.auth.uid == requestId
+        );
+      }
+
+      // Sightings inside garage
+      match /sightings/{sightingId} {
+        allow read: if isGarageMember(garageId);
+
+        allow create: if isGarageMember(garageId) &&
+          request.resource.data.createdBy == request.auth.uid &&
+          request.resource.data.garageId == garageId &&
+          isValidSighting(request.resource.data);
+
+        allow update: if isGarageMember(garageId) &&
+          request.resource.data.garageId == garageId &&
+          (resource.data.createdBy == request.auth.uid || isGarageOwner(garageId)) &&
+          isValidSighting(request.resource.data);
+
+        allow delete: if isGarageMember(garageId) &&
+          (resource.data.createdBy == request.auth.uid || isGarageOwner(garageId));
+      }
+    }
+  }
+}
