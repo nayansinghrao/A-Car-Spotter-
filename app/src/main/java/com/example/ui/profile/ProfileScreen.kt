@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
@@ -82,7 +83,8 @@ fun ProfileScreen(
     onApproveRequest: (JoinRequest) -> Unit,
     onRejectRequest: (JoinRequest) -> Unit,
     onSwitchGarageClick: () -> Unit,
-    onSignOut: () -> Unit
+    onSignOut: () -> Unit,
+    onSignInClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val isOwner = garage?.isOwner(currentUserId) == true
@@ -415,23 +417,79 @@ fun ProfileScreen(
             Text("System Health & Diagnostic Logs", fontWeight = FontWeight.SemiBold)
         }
 
-        // SIGN OUT BUTTON
-        Button(
-            onClick = onSignOut,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = CarbonDark,
-                contentColor = DangerRed
-            ),
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(50.dp)
-                .border(1.dp, DangerRed.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                .testTag("sign_out_button")
-        ) {
-            Icon(imageVector = Icons.Default.Logout, contentDescription = null, tint = DangerRed)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Sign Out", fontWeight = FontWeight.Bold)
+        if (currentUserId == "local_spotter") {
+            // GOOGLE SIGN IN CARD (OPTIONAL CLOUD SYNC)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(CharcoalCard)
+                    .border(1.dp, SpotrGreen.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Security,
+                        contentDescription = null,
+                        tint = SpotrGreen,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Cloud Sync & 2-Person Fleet",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = TextWhite
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "You are currently spotting in Private Offline Mode. Sign in with Google to backup sightings and invite a trusted co-spotter.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextMuted,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                Button(
+                    onClick = onSignInClick,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = SpotrGreen,
+                        contentColor = NearBlack
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp)
+                        .testTag("google_sign_in_profile_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Sign in with Google", fontWeight = FontWeight.Bold)
+                }
+            }
+        } else {
+            // SIGN OUT BUTTON
+            Button(
+                onClick = onSignOut,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = CarbonDark,
+                    contentColor = DangerRed
+                ),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+                    .border(1.dp, DangerRed.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                    .testTag("sign_out_button")
+            ) {
+                Icon(imageVector = Icons.Default.Logout, contentDescription = null, tint = DangerRed)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Sign Out", fontWeight = FontWeight.Bold)
+            }
         }
 
         Spacer(modifier = Modifier.height(24.dp))

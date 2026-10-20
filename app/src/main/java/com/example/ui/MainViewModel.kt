@@ -28,11 +28,11 @@ enum class AutoSaveStatus {
 
 data class MainUiState(
     val currentUser: FirebaseUser? = null,
-    val userProfile: UserProfile? = null,
+    val userProfile: UserProfile? = MainViewModel.LOCAL_USER_PROFILE,
     val isAuthLoading: Boolean = false,
     val authErrorMessage: String? = null,
 
-    val currentGarage: Garage? = null,
+    val currentGarage: Garage? = MainViewModel.LOCAL_GARAGE,
     val pendingJoinRequests: List<JoinRequest> = emptyList(),
     val pendingRequestGarage: Garage? = null,
     val isGarageLoading: Boolean = false,
@@ -50,6 +50,27 @@ data class MainUiState(
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
+    companion object {
+        const val LOCAL_USER_ID = "local_spotter"
+        const val LOCAL_GARAGE_ID = "local_garage"
+
+        val LOCAL_GARAGE = Garage(
+            id = LOCAL_GARAGE_ID,
+            name = "My Private Garage",
+            ownerUid = LOCAL_USER_ID,
+            ownerEmail = "local@spotr.app",
+            memberUids = listOf(LOCAL_USER_ID),
+            inviteCode = "SPT-LOCAL"
+        )
+
+        val LOCAL_USER_PROFILE = UserProfile(
+            uid = LOCAL_USER_ID,
+            displayName = "Spotter",
+            email = "local@spotr.app",
+            currentGarageId = LOCAL_GARAGE_ID
+        )
+    }
+
     private val authRepo = AuthRepository(application)
     private val garageRepo = GarageRepository(application)
     private val sightingRepo = SightingRepository(application)
@@ -63,7 +84,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var autoSaveJob: Job? = null
 
     init {
-        // Observe Firebase Auth state
+        // Immediately observe local garage so user lands directly on the main spotting interface
+        observeActiveGarage(LOCAL_GARAGE_ID)
+
+        // Observe Firebase Auth state in background
         viewModelScope.launch {
             authRepo.observeAuthState().collect { user ->
                 _uiState.value = _uiState.value.copy(
@@ -123,12 +147,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         sightingsObserveJob?.cancel()
         autoSaveJob?.cancel()
         _uiState.value = _uiState.value.copy(
-            currentGarage = null,
+            userProfile = LOCAL_USER_PROFILE,
+            currentGarage = LOCAL_GARAGE,
             pendingJoinRequests = emptyList(),
             pendingRequestGarage = null,
-            sightings = emptyList(),
             autoSaveStatus = AutoSaveStatus.IDLE
         )
+        observeActiveGarage(LOCAL_GARAGE_ID)
     }
 
     fun signInWithGoogle(activityContext: Context? = null) {

@@ -93,7 +93,8 @@ fun SpotrAppScaffold(
     onRejectRequest: (JoinRequest) -> Unit,
     onSaveSighting: suspend (Sighting, Boolean) -> Result<String>,
     onDeleteSighting: (sightingId: String) -> Unit,
-    onSignOut: () -> Unit
+    onSignOut: () -> Unit,
+    onSignInClick: () -> Unit = {}
 ) {
     var screenState by remember {
         mutableStateOf<ScreenState>(
@@ -283,7 +284,8 @@ fun SpotrAppScaffold(
                                 onApproveRequest = onApproveRequest,
                                 onRejectRequest = onRejectRequest,
                                 onSwitchGarageClick = { screenState = ScreenState.GarageSetup },
-                                onSignOut = onSignOut
+                                onSignOut = onSignOut,
+                                onSignInClick = onSignInClick
                             )
                         }
                     }

@@ -7,9 +7,13 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.UUID
 
@@ -17,9 +21,10 @@ class SightingRepository(context: Context) {
 
     private val firestore = FirestoreProvider.get(context)
     private val auth = FirebaseAuth.getInstance()
+    private val localSightingsFlow = MutableStateFlow<List<Sighting>>(emptyList())
 
     private fun requireUserId(): String {
-        return auth.currentUser?.uid ?: error("User must be authenticated")
+        return auth.currentUser?.uid ?: "local_spotter"
     }
 
     private fun currentUserName(): String {
@@ -35,9 +40,34 @@ class SightingRepository(context: Context) {
      */
     suspend fun upsertSighting(garageId: String, sighting: Sighting): Result<String> {
         val uid = requireUserId()
+        val sightingId = if (sighting.id.isNotBlank()) sighting.id else UUID.randomUUID().toString()
+        val userName = currentUserName()
+
+        // Local mode fallback when working with local garage or unauthenticated
+        if (garageId == "local_garage" || auth.currentUser == null) {
+            val now = com.google.firebase.Timestamp.now()
+            val existing = localSightingsFlow.value.find { it.id == sightingId }
+            val updated = sighting.copy(
+                id = sightingId,
+                garageId = garageId,
+                createdBy = existing?.createdBy ?: uid,
+                creatorName = existing?.creatorName ?: userName,
+                lastUpdatedBy = userName,
+                createdAt = existing?.createdAt ?: now,
+                updatedAt = now
+            )
+            val list = localSightingsFlow.value.toMutableList()
+            val idx = list.indexOfFirst { it.id == sightingId }
+            if (idx >= 0) {
+                list[idx] = updated
+            } else {
+                list.add(0, updated)
+            }
+            localSightingsFlow.value = list
+            return Result.success(sightingId)
+        }
+
         return try {
-            val sightingId = if (sighting.id.isNotBlank()) sighting.id else UUID.randomUUID().toString()
-            val userName = currentUserName()
             val docRef = firestore.collection("garages").document(garageId)
                 .collection("sightings").document(sightingId)
 
@@ -112,7 +142,10 @@ class SightingRepository(context: Context) {
     }
 
     suspend fun deleteSighting(garageId: String, sightingId: String): Result<Unit> {
-        requireUserId()
+        if (garageId == "local_garage" || auth.currentUser == null) {
+            localSightingsFlow.value = localSightingsFlow.value.filter { it.id != sightingId }
+            return Result.success(Unit)
+        }
         return try {
             firestore.collection("garages").document(garageId)
                 .collection("sightings").document(sightingId)
@@ -125,9 +158,13 @@ class SightingRepository(context: Context) {
     }
 
     fun observeSightings(garageId: String): Flow<List<Sighting>> = callbackFlow {
-        if (garageId.isBlank() || auth.currentUser == null) {
-            trySend(emptyList())
-            awaitClose {}
+        if (garageId == "local_garage" || auth.currentUser == null) {
+            val job = CoroutineScope(Dispatchers.Default).launch {
+                localSightingsFlow.collect { list ->
+                    trySend(list)
+                }
+            }
+            awaitClose { job.cancel() }
             return@callbackFlow
         }
 

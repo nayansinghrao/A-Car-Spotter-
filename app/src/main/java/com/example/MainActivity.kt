@@ -35,35 +35,28 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-                    // MANDATORY AUTH GATE: Never display fleet or garage data if user is not authenticated
-                    if (uiState.currentUser == null) {
-                        SignInScreen(
-                            isLoading = uiState.isAuthLoading,
-                            errorMessage = uiState.authErrorMessage,
-                            onSignInClick = { viewModel.signInWithGoogle(this@MainActivity) }
-                        )
-                    } else {
-                        SpotrAppScaffold(
-                            currentUserId = uiState.currentUser?.uid.orEmpty(),
-                            userProfile = uiState.userProfile,
-                            garage = uiState.currentGarage,
-                            sightings = uiState.sightings,
-                            pendingJoinRequests = uiState.pendingJoinRequests,
-                            pendingRequestGarage = uiState.pendingRequestGarage,
-                            isGarageLoading = uiState.isGarageLoading,
-                            garageErrorMessage = uiState.garageErrorMessage,
-                            autoSaveStatus = uiState.autoSaveStatus,
-                            onDraftChanged = { sighting -> viewModel.onDraftFieldsChanged(sighting) },
-                            onCreateGarage = { name -> viewModel.createGarage(name) },
-                            onJoinGarage = { code -> viewModel.joinGarageWithCode(code) },
-                            onCheckPendingStatus = { viewModel.checkPendingApproval() },
-                            onApproveRequest = { req -> viewModel.approveJoinRequest(req) },
-                            onRejectRequest = { req -> viewModel.rejectJoinRequest(req) },
-                            onSaveSighting = { sighting, isComplete -> viewModel.saveSightingExplicitly(sighting, isComplete) },
-                            onDeleteSighting = { id -> viewModel.deleteSighting(id) },
-                            onSignOut = { viewModel.signOut() }
-                        )
-                    }
+                    // Direct access to main spotting interface
+                    SpotrAppScaffold(
+                        currentUserId = uiState.currentUser?.uid ?: MainViewModel.LOCAL_USER_ID,
+                        userProfile = uiState.userProfile,
+                        garage = uiState.currentGarage,
+                        sightings = uiState.sightings,
+                        pendingJoinRequests = uiState.pendingJoinRequests,
+                        pendingRequestGarage = uiState.pendingRequestGarage,
+                        isGarageLoading = uiState.isGarageLoading,
+                        garageErrorMessage = uiState.garageErrorMessage,
+                        autoSaveStatus = uiState.autoSaveStatus,
+                        onDraftChanged = { sighting -> viewModel.onDraftFieldsChanged(sighting) },
+                        onCreateGarage = { name -> viewModel.createGarage(name) },
+                        onJoinGarage = { code -> viewModel.joinGarageWithCode(code) },
+                        onCheckPendingStatus = { viewModel.checkPendingApproval() },
+                        onApproveRequest = { req -> viewModel.approveJoinRequest(req) },
+                        onRejectRequest = { req -> viewModel.rejectJoinRequest(req) },
+                        onSaveSighting = { sighting, isComplete -> viewModel.saveSightingExplicitly(sighting, isComplete) },
+                        onDeleteSighting = { id -> viewModel.deleteSighting(id) },
+                        onSignOut = { viewModel.signOut() },
+                        onSignInClick = { viewModel.signInWithGoogle(this@MainActivity) }
+                    )
                 }
             }
         }

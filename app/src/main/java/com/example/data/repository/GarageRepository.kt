@@ -119,6 +119,21 @@ class GarageRepository(context: Context) {
     }
 
     fun observeGarage(garageId: String): Flow<Garage?> = callbackFlow {
+        if (garageId == "local_garage" || auth.currentUser == null) {
+            trySend(
+                Garage(
+                    id = "local_garage",
+                    name = "My Private Garage",
+                    ownerUid = "local_spotter",
+                    ownerEmail = "local@spotr.app",
+                    memberUids = listOf("local_spotter"),
+                    inviteCode = "SPT-LOCAL"
+                )
+            )
+            awaitClose {}
+            return@callbackFlow
+        }
+
         if (garageId.isBlank()) {
             trySend(null)
             awaitClose {}
@@ -155,7 +170,7 @@ class GarageRepository(context: Context) {
     }
 
     fun observeJoinRequests(garageId: String): Flow<List<JoinRequest>> = callbackFlow {
-        if (garageId.isBlank()) {
+        if (garageId == "local_garage" || auth.currentUser == null || garageId.isBlank()) {
             trySend(emptyList())
             awaitClose {}
             return@callbackFlow
