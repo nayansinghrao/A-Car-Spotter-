@@ -1,0 +1,6 @@
+{
+  "summary": "Comprehensive architectural plan to introduce a 'Save Now, Complete Later' draft and auto-save system to SPOTR. Details data schema adjustments, debounced auto-save with status indicators, Home & Garage drafts banners, resume/edit flow without duplicates, and shared two-person synchronization.",
+  "updatedAt": "2026-10-20T04:26:40.125405990Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

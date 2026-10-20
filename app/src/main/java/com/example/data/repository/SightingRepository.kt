@@ -22,82 +22,93 @@ class SightingRepository(context: Context) {
         return auth.currentUser?.uid ?: error("User must be authenticated")
     }
 
-    suspend fun addSighting(garageId: String, sighting: Sighting): Result<String> {
+    private fun currentUserName(): String {
+        val user = auth.currentUser
+        return user?.displayName?.ifBlank { null }
+            ?: user?.email?.substringBefore("@")
+            ?: "Spotter"
+    }
+
+    /**
+     * Upserts a sighting record (draft or complete) under the given garage.
+     * Preserves the stable ID, original creator, and createdAt timestamp.
+     */
+    suspend fun upsertSighting(garageId: String, sighting: Sighting): Result<String> {
         val uid = requireUserId()
         return try {
             val sightingId = if (sighting.id.isNotBlank()) sighting.id else UUID.randomUUID().toString()
-            val creatorName = auth.currentUser?.displayName?.ifBlank { null }
-                ?: auth.currentUser?.email?.substringBefore("@")
-                ?: "Spotter"
-
-            val data = hashMapOf(
-                "id" to sightingId,
-                "garageId" to garageId,
-                "createdBy" to uid,
-                "creatorName" to creatorName,
-                "category" to sighting.category,
-                "brand" to sighting.brand.trim(),
-                "model" to sighting.model.trim(),
-                "numberPlateRaw" to sighting.numberPlateRaw.trim(),
-                "numberPlateNormalized" to sighting.numberPlateNormalized.trim(),
-                "plateOcrStatus" to sighting.plateOcrStatus,
-                "imagePaths" to sighting.imagePaths,
-                "primaryImagePath" to sighting.primaryImagePath,
-                "locationName" to sighting.locationName.trim(),
-                "area" to sighting.area.trim(),
-                "city" to sighting.city.trim(),
-                "latitude" to sighting.latitude,
-                "longitude" to sighting.longitude,
-                "sightingDate" to sighting.sightingDate,
-                "sightingTime" to sighting.sightingTime,
-                "notes" to sighting.notes.trim(),
-                "createdAt" to FieldValue.serverTimestamp(),
-                "updatedAt" to FieldValue.serverTimestamp()
-            )
-
-            firestore.collection("garages").document(garageId)
+            val userName = currentUserName()
+            val docRef = firestore.collection("garages").document(garageId)
                 .collection("sightings").document(sightingId)
-                .set(data).await()
+
+            val snapshot = docRef.get().await()
+
+            if (!snapshot.exists()) {
+                val data = hashMapOf(
+                    "id" to sightingId,
+                    "garageId" to garageId,
+                    "createdBy" to uid,
+                    "creatorName" to userName,
+                    "lastUpdatedBy" to userName,
+                    "status" to sighting.status,
+                    "category" to sighting.category,
+                    "brand" to sighting.brand.trim(),
+                    "model" to sighting.model.trim(),
+                    "numberPlateRaw" to sighting.numberPlateRaw.trim(),
+                    "numberPlateNormalized" to sighting.numberPlateNormalized.trim(),
+                    "plateOcrStatus" to sighting.plateOcrStatus,
+                    "imagePaths" to sighting.imagePaths,
+                    "primaryImagePath" to sighting.primaryImagePath,
+                    "locationName" to sighting.locationName.trim(),
+                    "area" to sighting.area.trim(),
+                    "city" to sighting.city.trim(),
+                    "latitude" to sighting.latitude,
+                    "longitude" to sighting.longitude,
+                    "sightingDate" to sighting.sightingDate,
+                    "sightingTime" to sighting.sightingTime,
+                    "notes" to sighting.notes.trim(),
+                    "createdAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+                docRef.set(data).await()
+            } else {
+                val updateData = hashMapOf(
+                    "lastUpdatedBy" to userName,
+                    "status" to sighting.status,
+                    "category" to sighting.category,
+                    "brand" to sighting.brand.trim(),
+                    "model" to sighting.model.trim(),
+                    "numberPlateRaw" to sighting.numberPlateRaw.trim(),
+                    "numberPlateNormalized" to sighting.numberPlateNormalized.trim(),
+                    "plateOcrStatus" to sighting.plateOcrStatus,
+                    "imagePaths" to sighting.imagePaths,
+                    "primaryImagePath" to sighting.primaryImagePath,
+                    "locationName" to sighting.locationName.trim(),
+                    "area" to sighting.area.trim(),
+                    "city" to sighting.city.trim(),
+                    "latitude" to sighting.latitude,
+                    "longitude" to sighting.longitude,
+                    "sightingDate" to sighting.sightingDate,
+                    "sightingTime" to sighting.sightingTime,
+                    "notes" to sighting.notes.trim(),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+                docRef.update(updateData as Map<String, Any>).await()
+            }
 
             Result.success(sightingId)
         } catch (e: Exception) {
-            Log.e("SightingRepository", "Error adding sighting: ${e.message}", e)
+            Log.e("SightingRepository", "Error upserting sighting: ${e.message}", e)
             Result.failure(e)
         }
     }
 
+    suspend fun addSighting(garageId: String, sighting: Sighting): Result<String> {
+        return upsertSighting(garageId, sighting)
+    }
+
     suspend fun updateSighting(garageId: String, sighting: Sighting): Result<Unit> {
-        requireUserId()
-        return try {
-            val data = mapOf(
-                "category" to sighting.category,
-                "brand" to sighting.brand.trim(),
-                "model" to sighting.model.trim(),
-                "numberPlateRaw" to sighting.numberPlateRaw.trim(),
-                "numberPlateNormalized" to sighting.numberPlateNormalized.trim(),
-                "plateOcrStatus" to sighting.plateOcrStatus,
-                "imagePaths" to sighting.imagePaths,
-                "primaryImagePath" to sighting.primaryImagePath,
-                "locationName" to sighting.locationName.trim(),
-                "area" to sighting.area.trim(),
-                "city" to sighting.city.trim(),
-                "latitude" to sighting.latitude,
-                "longitude" to sighting.longitude,
-                "sightingDate" to sighting.sightingDate,
-                "sightingTime" to sighting.sightingTime,
-                "notes" to sighting.notes.trim(),
-                "updatedAt" to FieldValue.serverTimestamp()
-            )
-
-            firestore.collection("garages").document(garageId)
-                .collection("sightings").document(sighting.id)
-                .update(data).await()
-
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e("SightingRepository", "Error updating sighting: ${e.message}", e)
-            Result.failure(e)
-        }
+        return upsertSighting(garageId, sighting).map { }
     }
 
     suspend fun deleteSighting(garageId: String, sightingId: String): Result<Unit> {
@@ -138,6 +149,8 @@ class SightingRepository(context: Context) {
                             garageId = doc.getString("garageId") ?: garageId,
                             createdBy = doc.getString("createdBy") ?: "",
                             creatorName = doc.getString("creatorName") ?: "",
+                            lastUpdatedBy = doc.getString("lastUpdatedBy") ?: "",
+                            status = doc.getString("status") ?: "complete",
                             category = doc.getString("category") ?: "",
                             brand = doc.getString("brand") ?: "",
                             model = doc.getString("model") ?: "",

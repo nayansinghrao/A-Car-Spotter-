@@ -2,6 +2,7 @@ package com.example.ui.sighting
 
 import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.location.Geocoder
 import android.net.Uri
@@ -9,6 +10,9 @@ import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -32,15 +36,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.DocumentScanner
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -53,11 +60,13 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -73,11 +82,13 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.FileProvider
+import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import com.example.data.model.Sighting
 import com.example.data.model.VehicleCategory
 import com.example.ocr.PlateOcrEngine
+import com.example.ui.AutoSaveStatus
+import com.example.ui.camera.CameraViewfinderScreen
 import com.example.ui.theme.AccentCyan
 import com.example.ui.theme.CarbonDark
 import com.example.ui.theme.CharcoalBorder
@@ -107,71 +118,181 @@ import java.util.UUID
 @Composable
 fun AddSightingScreen(
     garageId: String,
+    initialSighting: Sighting? = null,
+    autoSaveStatus: AutoSaveStatus = AutoSaveStatus.IDLE,
+    onDraftChanged: (Sighting) -> Unit = {},
     onNavigateBack: () -> Unit,
     onSaveSuccess: () -> Unit,
-    onSaveSighting: suspend (Sighting) -> Result<String>
+    onSaveSighting: suspend (Sighting, Boolean) -> Result<String>
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
+    // Stable record ID preserved across drafts and edits
+    val sightingId = remember {
+        initialSighting?.id?.ifBlank { null } ?: UUID.randomUUID().toString()
+    }
+    val createdByUid = remember { initialSighting?.createdBy ?: "" }
+    val creatorName = remember { initialSighting?.creatorName ?: "" }
+
     // Photos state: stores Pair<DisplayUriString, Base64OrLocalPath>
-    val selectedImages = remember { mutableStateListOf<Pair<String, String>>() }
-    var primaryImageIndex by remember { mutableStateOf(0) }
+    val selectedImages = remember {
+        mutableStateListOf<Pair<String, String>>().apply {
+            if (initialSighting != null) {
+                if (initialSighting.imagePaths.isNotEmpty()) {
+                    initialSighting.imagePaths.forEach { add(Pair(it, it)) }
+                } else if (initialSighting.primaryImagePath.isNotBlank()) {
+                    add(Pair(initialSighting.primaryImagePath, initialSighting.primaryImagePath))
+                }
+            }
+        }
+    }
+    var primaryImageIndex by remember { mutableIntStateOf(0) }
 
     // Vehicle state
-    var selectedCategory by remember { mutableStateOf(VehicleCategory.SUPERCAR.label) }
-    var brand by remember { mutableStateOf("") }
-    var model by remember { mutableStateOf("") }
+    var selectedCategory by remember {
+        mutableStateOf(initialSighting?.category?.ifBlank { null } ?: VehicleCategory.SUPERCAR.label)
+    }
+    var brand by remember { mutableStateOf(initialSighting?.brand ?: "") }
+    var model by remember { mutableStateOf(initialSighting?.model ?: "") }
 
     // OCR & Number plate state
-    var numberPlateRaw by remember { mutableStateOf("") }
-    var numberPlateConfirmed by remember { mutableStateOf("") }
-    var plateOcrStatus by remember { mutableStateOf("manual") } // manual, detected_confirmed, unreadable, skipped
+    var numberPlateRaw by remember { mutableStateOf(initialSighting?.numberPlateRaw ?: "") }
+    var numberPlateConfirmed by remember {
+        mutableStateOf(
+            initialSighting?.numberPlateRaw?.ifBlank { null }
+                ?: initialSighting?.numberPlateNormalized
+                ?: ""
+        )
+    }
+    var plateOcrStatus by remember {
+        mutableStateOf(initialSighting?.plateOcrStatus ?: "manual")
+    }
     var isOcrRunning by remember { mutableStateOf(false) }
     var ocrFeedbackNote by remember { mutableStateOf<String?>(null) }
 
     // Location state
-    var locationName by remember { mutableStateOf("") }
-    var area by remember { mutableStateOf("") }
-    var city by remember { mutableStateOf("") }
-    var latitude by remember { mutableDoubleStateOf(0.0) }
-    var longitude by remember { mutableDoubleStateOf(0.0) }
+    var locationName by remember { mutableStateOf(initialSighting?.locationName ?: "") }
+    var area by remember { mutableStateOf(initialSighting?.area ?: "") }
+    var city by remember { mutableStateOf(initialSighting?.city ?: "") }
+    var latitude by remember { mutableDoubleStateOf(initialSighting?.latitude ?: 0.0) }
+    var longitude by remember { mutableDoubleStateOf(initialSighting?.longitude ?: 0.0) }
     var isCapturingLocation by remember { mutableStateOf(false) }
 
     // Sighting Date & Time
     val now = remember { Date() }
     val dateFormatter = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US) }
     val timeFormatter = remember { SimpleDateFormat("HH:mm", Locale.US) }
-    var sightingDate by remember { mutableStateOf(dateFormatter.format(now)) }
-    var sightingTime by remember { mutableStateOf(timeFormatter.format(now)) }
-    var notes by remember { mutableStateOf("") }
+    var sightingDate by remember {
+        mutableStateOf(initialSighting?.sightingDate?.ifBlank { null } ?: dateFormatter.format(now))
+    }
+    var sightingTime by remember {
+        mutableStateOf(initialSighting?.sightingTime?.ifBlank { null } ?: timeFormatter.format(now))
+    }
+    var notes by remember { mutableStateOf(initialSighting?.notes ?: "") }
 
-    // Save state
-    var isSaving by remember { mutableStateOf(false) }
+    // Explicit save state
+    var isSavingExplicitly by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf<String?>(null) }
 
-    // Camera temp file & launcher
-    var tempCameraUri by remember { mutableStateOf<Uri?>(null) }
-    val cameraLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicture()
-    ) { success ->
-        if (success && tempCameraUri != null) {
-            coroutineScope.launch {
-                val processed = ImageStorageHelper.processAndSaveImage(context, tempCameraUri!!)
-                if (processed != null) {
-                    selectedImages.add(Pair(tempCameraUri.toString(), processed.second))
-                    // If no OCR plate yet, auto-run assistive OCR on first captured image
-                    if (numberPlateConfirmed.isBlank() && selectedImages.size == 1) {
-                        runOcrOnUri(context, tempCameraUri!!) { result ->
+    // Helper to construct the current snapshot of Sighting
+    fun buildSighting(status: String): Sighting {
+        val imageStrings = selectedImages.map { it.second }
+        val primary = if (primaryImageIndex in imageStrings.indices) {
+            imageStrings[primaryImageIndex]
+        } else imageStrings.firstOrNull() ?: ""
+
+        return Sighting(
+            id = sightingId,
+            garageId = garageId,
+            createdBy = createdByUid,
+            creatorName = creatorName,
+            status = status,
+            category = selectedCategory,
+            brand = brand.trim(),
+            model = model.trim(),
+            numberPlateRaw = numberPlateRaw.trim(),
+            numberPlateNormalized = PlateOcrEngine.normalizePlate(numberPlateConfirmed),
+            plateOcrStatus = plateOcrStatus,
+            imagePaths = imageStrings,
+            primaryImagePath = primary,
+            locationName = locationName.trim(),
+            area = area.trim(),
+            city = city.trim(),
+            latitude = latitude,
+            longitude = longitude,
+            sightingDate = sightingDate,
+            sightingTime = sightingTime,
+            notes = notes.trim(),
+            createdAt = initialSighting?.createdAt
+        )
+    }
+
+    // Missing fields derived dynamically
+    val currentMissingFields by remember(
+        selectedImages.size, primaryImageIndex, brand, model,
+        numberPlateRaw, numberPlateConfirmed, latitude, longitude,
+        locationName, area, city
+    ) {
+        derivedStateOf { buildSighting("draft").missingFields }
+    }
+
+    // Auto-save debounce trigger
+    // Avoid firing on initial composition by tracking user edits
+    var hasUserEdited by remember { mutableStateOf(false) }
+    LaunchedEffect(
+        selectedCategory, brand, model, numberPlateConfirmed,
+        locationName, area, city, latitude, longitude,
+        notes, sightingDate, sightingTime, selectedImages.size
+    ) {
+        if (!hasUserEdited) {
+            hasUserEdited = true
+            return@LaunchedEffect
+        }
+        onDraftChanged(buildSighting("draft"))
+    }
+
+    // CameraX Viewfinder state
+    var showCameraViewfinder by remember { mutableStateOf(false) }
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            showCameraViewfinder = true
+        } else {
+            Toast.makeText(context, "Camera permission required to capture vehicle photos", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    if (showCameraViewfinder) {
+        CameraViewfinderScreen(
+            onPhotoCaptured = { photoFile ->
+                showCameraViewfinder = false
+                coroutineScope.launch {
+                    val uri = Uri.fromFile(photoFile)
+                    val processed = ImageStorageHelper.processAndSaveImage(context, uri)
+                    if (processed != null) {
+                        selectedImages.add(Pair(uri.toString(), processed.second))
+                    }
+                    // Run OCR immediately on the newly captured car photo
+                    isOcrRunning = true
+                    runOcrOnUri(context, uri) { result ->
+                        isOcrRunning = false
+                        if (result.formattedPlate.isNotBlank()) {
                             numberPlateRaw = result.detectedRaw
                             numberPlateConfirmed = result.formattedPlate
                             plateOcrStatus = "detected_confirmed"
                             ocrFeedbackNote = result.confidenceNote
+                            Toast.makeText(context, "Plate recognized: ${result.formattedPlate}", Toast.LENGTH_SHORT).show()
+                        } else {
+                            ocrFeedbackNote = "No plate recognized. You can enter it manually."
                         }
                     }
                 }
-            }
-        }
+            },
+            onClose = { showCameraViewfinder = false }
+        )
+        return
     }
 
     // Gallery picker launcher
@@ -260,21 +381,27 @@ fun AddSightingScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(NearBlack)
-                    .padding(horizontal = 8.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                IconButton(onClick = onNavigateBack) {
-                    Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextWhite)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextWhite)
+                    }
+                    Text(
+                        text = if (initialSighting?.isDraft == true) "EDIT DRAFT" else if (initialSighting != null) "EDIT SIGHTING" else "ADD SIGHTING",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 2.sp,
+                            fontFamily = FontFamily.Monospace
+                        ),
+                        color = TextWhite
+                    )
                 }
-                Text(
-                    text = "ADD VEHICLE SIGHTING",
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 2.sp,
-                        fontFamily = FontFamily.Monospace
-                    ),
-                    color = TextWhite
-                )
+
+                // VISIBLE AUTO-SAVE STATE BADGE
+                AutoSaveBadge(status = autoSaveStatus)
             }
         }
     ) { innerPadding ->
@@ -283,9 +410,60 @@ fun AddSightingScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
+            // MISSING FIELDS REMINDER BAR (Gentle, non-blocking guidance)
+            if (currentMissingFields.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(CarbonDark)
+                        .border(1.dp, CharcoalBorder, RoundedCornerShape(10.dp))
+                        .padding(10.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.ErrorOutline,
+                                contentDescription = null,
+                                tint = WarningAmber,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Missing Information (Draft Mode Active)",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = WarningAmber
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            currentMissingFields.forEach { missingLabel ->
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(CharcoalSurfaceVariant)
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = missingLabel,
+                                        fontSize = 10.sp,
+                                        color = TextMuted
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // SECTION 1: PHOTOS
             Column(
                 modifier = Modifier
@@ -309,7 +487,7 @@ fun AddSightingScreen(
                         color = SpotrGreen
                     )
                     Text(
-                        text = "${selectedImages.size} selected",
+                        text = "${selectedImages.size} selected (Optional for draft)",
                         style = MaterialTheme.typography.labelSmall,
                         color = TextMuted
                     )
@@ -421,14 +599,16 @@ fun AddSightingScreen(
                 ) {
                     Button(
                         onClick = {
-                            val tempFile = File(context.cacheDir, "temp_camera_${UUID.randomUUID()}.jpg")
-                            val uri = FileProvider.getUriForFile(
+                            val hasCamPermission = ContextCompat.checkSelfPermission(
                                 context,
-                                "${context.packageName}.fileprovider",
-                                tempFile
-                            )
-                            tempCameraUri = uri
-                            cameraLauncher.launch(uri)
+                                Manifest.permission.CAMERA
+                            ) == PackageManager.PERMISSION_GRANTED
+
+                            if (hasCamPermission) {
+                                showCameraViewfinder = true
+                            } else {
+                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                            }
                         },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = CharcoalSurfaceVariant,
@@ -540,7 +720,7 @@ fun AddSightingScreen(
                 }
 
                 Text(
-                    text = "Normalized searchable: ${PlateOcrEngine.normalizePlate(numberPlateConfirmed).ifBlank { "NONE" }}",
+                    text = "Normalized: ${PlateOcrEngine.normalizePlate(numberPlateConfirmed).ifBlank { "NONE" }}",
                     style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
                     color = TextDim,
                     modifier = Modifier.padding(top = 4.dp)
@@ -629,11 +809,11 @@ fun AddSightingScreen(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Brand input
+                // Brand input (Optional for draft)
                 OutlinedTextField(
                     value = brand,
                     onValueChange = { brand = it },
-                    label = { Text("Brand / Make (Required)") },
+                    label = { Text("Brand / Make (Optional for draft)") },
                     placeholder = { Text("e.g. Porsche") },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
@@ -651,11 +831,11 @@ fun AddSightingScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Model input
+                // Model input (Optional for draft)
                 OutlinedTextField(
                     value = model,
                     onValueChange = { model = it },
-                    label = { Text("Model (Required)") },
+                    label = { Text("Model (Optional for draft)") },
                     placeholder = { Text("e.g. 911 GT3 RS") },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
@@ -748,7 +928,7 @@ fun AddSightingScreen(
                 OutlinedTextField(
                     value = locationName,
                     onValueChange = { locationName = it },
-                    label = { Text("Location Name / Landmark") },
+                    label = { Text("Location Name / Landmark (Optional)") },
                     placeholder = { Text("e.g. Bandra-Worli Sea Link") },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
@@ -895,80 +1075,146 @@ fun AddSightingScreen(
                 }
             }
 
-            // SUBMIT BUTTON
-            Button(
-                onClick = {
-                    if (brand.isBlank() || model.isBlank()) {
-                        saveError = "Please enter both vehicle Brand and Model."
-                        return@Button
-                    }
-                    if (selectedImages.isEmpty()) {
-                        saveError = "Please attach at least one vehicle photo."
-                        return@Button
-                    }
-
-                    isSaving = true
-                    saveError = null
-                    coroutineScope.launch {
-                        val imageStrings = selectedImages.map { it.second }
-                        val primary = if (primaryImageIndex in imageStrings.indices) {
-                            imageStrings[primaryImageIndex]
-                        } else imageStrings.first()
-
-                        val sighting = Sighting(
-                            id = UUID.randomUUID().toString(),
-                            garageId = garageId,
-                            category = selectedCategory,
-                            brand = brand.trim(),
-                            model = model.trim(),
-                            numberPlateRaw = numberPlateRaw.trim(),
-                            numberPlateNormalized = PlateOcrEngine.normalizePlate(numberPlateConfirmed),
-                            plateOcrStatus = plateOcrStatus,
-                            imagePaths = imageStrings,
-                            primaryImagePath = primary,
-                            locationName = locationName.trim(),
-                            area = area.trim(),
-                            city = city.trim(),
-                            latitude = latitude,
-                            longitude = longitude,
-                            sightingDate = sightingDate,
-                            sightingTime = sightingTime,
-                            notes = notes.trim()
-                        )
-
-                        val result = onSaveSighting(sighting)
-                        isSaving = false
-                        if (result.isSuccess) {
-                            Toast.makeText(context, "Sighting logged to garage!", Toast.LENGTH_SHORT).show()
-                            onSaveSuccess()
-                        } else {
-                            saveError = result.exceptionOrNull()?.localizedMessage ?: "Failed to save sighting"
-                        }
-                    }
-                },
-                enabled = !isSaving,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = SpotrGreen,
-                    contentColor = NearBlack
-                ),
-                shape = RoundedCornerShape(12.dp),
+            // DUAL ACTION BUTTONS: "Save Draft" & "Save as Complete"
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp)
-                    .testTag("save_sighting_button")
+                    .padding(bottom = 24.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                if (isSaving) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = NearBlack, strokeWidth = 2.5.dp)
-                } else {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Default.Check, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Log Sighting To Shared Garage", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                // 1. SAVE DRAFT (Accepts any state, even completely blank)
+                Button(
+                    onClick = {
+                        isSavingExplicitly = true
+                        saveError = null
+                        coroutineScope.launch {
+                            val draftSighting = buildSighting(status = "draft")
+                            val result = onSaveSighting(draftSighting, false)
+                            isSavingExplicitly = false
+                            if (result.isSuccess) {
+                                Toast.makeText(context, "Draft saved to garage!", Toast.LENGTH_SHORT).show()
+                                onSaveSuccess()
+                            } else {
+                                saveError = result.exceptionOrNull()?.localizedMessage ?: "Failed to save draft"
+                            }
+                        }
+                    },
+                    enabled = !isSavingExplicitly,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = CharcoalCard,
+                        contentColor = TextWhite
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(54.dp)
+                        .border(1.dp, CharcoalBorder, RoundedCornerShape(12.dp))
+                        .testTag("save_draft_button")
+                ) {
+                    if (isSavingExplicitly) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), color = TextWhite, strokeWidth = 2.dp)
+                    } else {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(imageVector = Icons.Default.Save, contentDescription = null, tint = SpotrGreen, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Save Draft", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        }
+                    }
+                }
+
+                // 2. SAVE AS COMPLETE (Direct save, reminds gently if fields missing without blocking)
+                Button(
+                    onClick = {
+                        isSavingExplicitly = true
+                        saveError = null
+                        coroutineScope.launch {
+                            val completeSighting = buildSighting(status = "complete")
+                            val result = onSaveSighting(completeSighting, true)
+                            isSavingExplicitly = false
+                            if (result.isSuccess) {
+                                if (currentMissingFields.isNotEmpty()) {
+                                    Toast.makeText(
+                                        context,
+                                        "Saved as complete (Missing: ${currentMissingFields.joinToString(", ")})",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                } else {
+                                    Toast.makeText(context, "Sighting completed & logged!", Toast.LENGTH_SHORT).show()
+                                }
+                                onSaveSuccess()
+                            } else {
+                                saveError = result.exceptionOrNull()?.localizedMessage ?: "Failed to complete sighting"
+                            }
+                        }
+                    },
+                    enabled = !isSavingExplicitly,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = SpotrGreen,
+                        contentColor = NearBlack
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .weight(1.3f)
+                        .height(54.dp)
+                        .testTag("save_complete_button")
+                ) {
+                    if (isSavingExplicitly) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = NearBlack, strokeWidth = 2.5.dp)
+                    } else {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(imageVector = Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Save as Complete", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        }
                     }
                 }
             }
+        }
+    }
+}
 
-            Spacer(modifier = Modifier.height(24.dp))
+@Composable
+private fun AutoSaveBadge(status: AutoSaveStatus) {
+    AnimatedVisibility(
+        visible = status != AutoSaveStatus.IDLE,
+        enter = fadeIn(),
+        exit = fadeOut()
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .background(CarbonDark)
+                .border(
+                    1.dp,
+                    when (status) {
+                        AutoSaveStatus.SAVING -> WarningAmber
+                        AutoSaveStatus.SAVED -> SpotrGreen
+                        AutoSaveStatus.FAILED -> DangerRed
+                        else -> CharcoalBorder
+                    },
+                    RoundedCornerShape(12.dp)
+                )
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+        ) {
+            when (status) {
+                AutoSaveStatus.SAVING -> {
+                    CircularProgressIndicator(modifier = Modifier.size(10.dp), color = WarningAmber, strokeWidth = 1.5.dp)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Saving...", fontSize = 11.sp, color = WarningAmber, fontWeight = FontWeight.Medium)
+                }
+                AutoSaveStatus.SAVED -> {
+                    Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null, tint = SpotrGreen, modifier = Modifier.size(12.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Saved", fontSize = 11.sp, color = SpotrGreen, fontWeight = FontWeight.Bold)
+                }
+                AutoSaveStatus.FAILED -> {
+                    Icon(imageVector = Icons.Default.ErrorOutline, contentDescription = null, tint = DangerRed, modifier = Modifier.size(12.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Save failed", fontSize = 11.sp, color = DangerRed, fontWeight = FontWeight.Bold)
+                }
+                else -> Unit
+            }
         }
     }
 }

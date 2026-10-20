@@ -44,6 +44,7 @@ import com.example.data.model.Garage
 import com.example.data.model.JoinRequest
 import com.example.data.model.Sighting
 import com.example.data.model.UserProfile
+import com.example.ui.AutoSaveStatus
 import com.example.ui.garage.GarageScreen
 import com.example.ui.garage_setup.GarageSetupScreen
 import com.example.ui.home.HomeScreen
@@ -68,7 +69,7 @@ enum class SpotrTab(val label: String, val icon: ImageVector) {
 
 sealed class ScreenState {
     data class TabView(val tab: SpotrTab) : ScreenState()
-    data object AddSighting : ScreenState()
+    data class AddSighting(val initialSighting: Sighting? = null) : ScreenState()
     data class SightingDetail(val sighting: Sighting) : ScreenState()
     data object GarageSetup : ScreenState()
 }
@@ -83,12 +84,14 @@ fun SpotrAppScaffold(
     pendingRequestGarage: Garage?,
     isGarageLoading: Boolean,
     garageErrorMessage: String?,
+    autoSaveStatus: AutoSaveStatus = AutoSaveStatus.IDLE,
+    onDraftChanged: (Sighting) -> Unit = {},
     onCreateGarage: (name: String) -> Unit,
     onJoinGarage: (code: String) -> Unit,
     onCheckPendingStatus: () -> Unit,
     onApproveRequest: (JoinRequest) -> Unit,
     onRejectRequest: (JoinRequest) -> Unit,
-    onSaveSighting: suspend (Sighting) -> Result<String>,
+    onSaveSighting: suspend (Sighting, Boolean) -> Result<String>,
     onDeleteSighting: (sightingId: String) -> Unit,
     onSignOut: () -> Unit
 ) {
@@ -132,7 +135,7 @@ fun SpotrAppScaffold(
                 exit = fadeOut() + scaleOut()
             ) {
                 FloatingActionButton(
-                    onClick = { screenState = ScreenState.AddSighting },
+                    onClick = { screenState = ScreenState.AddSighting() },
                     containerColor = SpotrGreen,
                     contentColor = NearBlack,
                     shape = CircleShape,
@@ -216,6 +219,9 @@ fun SpotrAppScaffold(
                 is ScreenState.AddSighting -> {
                     AddSightingScreen(
                         garageId = garage?.id ?: "",
+                        initialSighting = state.initialSighting,
+                        autoSaveStatus = autoSaveStatus,
+                        onDraftChanged = onDraftChanged,
                         onNavigateBack = { screenState = ScreenState.TabView(SpotrTab.GARAGE) },
                         onSaveSuccess = { screenState = ScreenState.TabView(SpotrTab.GARAGE) },
                         onSaveSighting = onSaveSighting
@@ -228,6 +234,7 @@ fun SpotrAppScaffold(
                         currentUserId = currentUserId,
                         isOwner = garage?.isOwner(currentUserId) == true,
                         onNavigateBack = { screenState = ScreenState.TabView(SpotrTab.GARAGE) },
+                        onResumeDraft = { draft -> screenState = ScreenState.AddSighting(draft) },
                         onDeleteConfirmed = {
                             onDeleteSighting(state.sighting.id)
                             screenState = ScreenState.TabView(SpotrTab.GARAGE)
@@ -243,8 +250,9 @@ fun SpotrAppScaffold(
                                 sightings = sightings,
                                 currentUserId = currentUserId,
                                 onNavigateToGarage = { screenState = ScreenState.TabView(SpotrTab.GARAGE) },
-                                onNavigateToAddSighting = { screenState = ScreenState.AddSighting },
+                                onNavigateToAddSighting = { screenState = ScreenState.AddSighting() },
                                 onSightingClick = { sighting -> screenState = ScreenState.SightingDetail(sighting) },
+                                onResumeDraft = { draft -> screenState = ScreenState.AddSighting(draft) },
                                 onNavigateToProfile = { screenState = ScreenState.TabView(SpotrTab.PROFILE) }
                             )
                         }
@@ -254,7 +262,8 @@ fun SpotrAppScaffold(
                                 sightings = sightings,
                                 garageName = garage?.name ?: "Private Garage",
                                 onSightingClick = { sighting -> screenState = ScreenState.SightingDetail(sighting) },
-                                onAddSightingClick = { screenState = ScreenState.AddSighting }
+                                onResumeDraft = { draft -> screenState = ScreenState.AddSighting(draft) },
+                                onAddSightingClick = { screenState = ScreenState.AddSighting() }
                             )
                         }
 

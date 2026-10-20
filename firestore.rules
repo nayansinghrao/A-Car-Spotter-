@@ -65,6 +65,7 @@ service cloud.firestore {
       return data.id is string &&
         data.garageId is string &&
         data.createdBy is string &&
+        data.status in ['draft', 'complete'] &&
         data.category is string &&
         data.brand is string &&
         data.model is string &&
@@ -148,7 +149,7 @@ service cloud.firestore {
 
         allow update: if isGarageMember(garageId) &&
           request.resource.data.garageId == garageId &&
-          (resource.data.createdBy == request.auth.uid || isGarageOwner(garageId)) &&
+          request.resource.data.createdBy == resource.data.createdBy &&
           isValidSighting(request.resource.data);
 
         allow delete: if isGarageMember(garageId) &&

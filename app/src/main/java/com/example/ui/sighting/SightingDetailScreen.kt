@@ -75,6 +75,7 @@ import com.example.ui.theme.SpotrOnGreenContainer
 import com.example.ui.theme.TextDim
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextWhite
+import com.example.ui.theme.WarningAmber
 import java.util.Locale
 
 @Composable
@@ -83,6 +84,7 @@ fun SightingDetailScreen(
     currentUserId: String,
     isOwner: Boolean,
     onNavigateBack: () -> Unit,
+    onResumeDraft: (Sighting) -> Unit = {},
     onDeleteConfirmed: () -> Unit
 ) {
     val context = LocalContext.current
@@ -146,12 +148,15 @@ fun SightingDetailScreen(
                     ),
                     color = TextWhite
                 )
-                if (canModify) {
-                    IconButton(onClick = { showDeleteDialog = true }) {
-                        Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete", tint = DangerRed)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { onResumeDraft(sighting) }) {
+                        Icon(imageVector = Icons.Default.Edit, contentDescription = "Edit Sighting", tint = SpotrGreen)
                     }
-                } else {
-                    Spacer(modifier = Modifier.width(48.dp))
+                    if (canModify) {
+                        IconButton(onClick = { showDeleteDialog = true }) {
+                            Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete", tint = DangerRed)
+                        }
+                    }
                 }
             }
         }
@@ -162,6 +167,96 @@ fun SightingDetailScreen(
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
         ) {
+            // INCOMPLETE DRAFT BANNER & RESUME ACTION
+            if (sighting.isDraft) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(NearBlack)
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(CharcoalCard)
+                            .border(1.5.dp, WarningAmber, RoundedCornerShape(12.dp))
+                            .padding(14.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(WarningAmber)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "INCOMPLETE DRAFT",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace,
+                                            letterSpacing = 1.sp
+                                        ),
+                                        color = WarningAmber
+                                    )
+                                }
+                                Text(
+                                    text = "Ready to finish",
+                                    fontSize = 11.sp,
+                                    color = TextMuted
+                                )
+                            }
+
+                            if (sighting.missingFields.isNotEmpty()) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    sighting.missingFields.forEach { field ->
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(CarbonDark)
+                                                .border(0.5.dp, WarningAmber.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = field,
+                                                fontSize = 10.sp,
+                                                color = WarningAmber,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Button(
+                                onClick = { onResumeDraft(sighting) },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = SpotrGreen,
+                                    contentColor = NearBlack
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(44.dp)
+                            ) {
+                                Icon(imageVector = Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Resume & Complete Draft", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+                        }
+                    }
+                }
+            }
             // PHOTO CAROUSEL
             Box(
                 modifier = Modifier

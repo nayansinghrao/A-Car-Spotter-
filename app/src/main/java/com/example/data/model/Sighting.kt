@@ -7,6 +7,8 @@ data class Sighting(
     val garageId: String = "",
     val createdBy: String = "",
     val creatorName: String = "",
+    val lastUpdatedBy: String = "",
+    val status: String = "complete", // "draft" or "complete"
     val category: String = VehicleCategory.OTHER_CAR.label,
     val brand: String = "",
     val model: String = "",
@@ -25,4 +27,33 @@ data class Sighting(
     val notes: String = "",
     val createdAt: Timestamp? = null,
     val updatedAt: Timestamp? = null
-)
+) {
+    val isDraft: Boolean
+        get() = status == "draft"
+
+    val isComplete: Boolean
+        get() = status == "complete"
+
+    /**
+     * Dynamically derives missing information labels from currently saved fields
+     * without relying on a static or stale list.
+     */
+    val missingFields: List<String>
+        get() = buildList {
+            if (primaryImagePath.isBlank() && imagePaths.isEmpty()) {
+                add("Photo missing")
+            }
+            if (brand.isBlank()) {
+                add("Brand needed")
+            }
+            if (model.isBlank()) {
+                add("Model needed")
+            }
+            if (numberPlateRaw.isBlank() && numberPlateNormalized.isBlank()) {
+                add("Plate unconfirmed")
+            }
+            if (latitude == 0.0 && longitude == 0.0 && locationName.isBlank() && area.isBlank() && city.isBlank()) {
+                add("Location missing")
+            }
+        }
+}

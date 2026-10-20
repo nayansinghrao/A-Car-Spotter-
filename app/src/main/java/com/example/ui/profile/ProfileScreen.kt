@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
@@ -40,6 +41,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,6 +57,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.model.Garage
 import com.example.data.model.JoinRequest
 import com.example.data.model.UserProfile
+import com.example.ui.diagnostic.DiagnosticLogsDialog
 import com.example.ui.theme.CarbonDark
 import com.example.ui.theme.CharcoalBorder
 import com.example.ui.theme.CharcoalCard
@@ -80,6 +86,11 @@ fun ProfileScreen(
 ) {
     val context = LocalContext.current
     val isOwner = garage?.isOwner(currentUserId) == true
+    var showDiagnostics by remember { mutableStateOf(false) }
+
+    if (showDiagnostics) {
+        DiagnosticLogsDialog(onDismissRequest = { showDiagnostics = false })
+    }
 
     Column(
         modifier = Modifier
@@ -386,6 +397,22 @@ fun ProfileScreen(
             Icon(imageVector = Icons.Default.SwapHoriz, contentDescription = null, tint = SpotrGreen)
             Spacer(modifier = Modifier.width(8.dp))
             Text("Switch or Join Another Garage")
+        }
+
+        // SYSTEM HEALTH & DIAGNOSTICS BUTTON
+        OutlinedButton(
+            onClick = { showDiagnostics = true },
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = TextWhite),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp)
+                .border(1.dp, CharcoalBorder, RoundedCornerShape(12.dp))
+                .testTag("profile_diagnostics_button")
+        ) {
+            Icon(imageVector = Icons.Default.BugReport, contentDescription = null, tint = SpotrGreen)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("System Health & Diagnostic Logs", fontWeight = FontWeight.SemiBold)
         }
 
         // SIGN OUT BUTTON

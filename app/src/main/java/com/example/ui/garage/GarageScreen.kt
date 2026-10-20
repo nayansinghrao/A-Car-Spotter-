@@ -72,6 +72,7 @@ import com.example.ui.theme.SpotrOnGreenContainer
 import com.example.ui.theme.TextDim
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextWhite
+import com.example.ui.theme.WarningAmber
 import java.util.Locale
 
 enum class SightingSort(val label: String) {
@@ -86,20 +87,30 @@ fun GarageScreen(
     sightings: List<Sighting>,
     garageName: String,
     onSightingClick: (Sighting) -> Unit,
+    onResumeDraft: (Sighting) -> Unit = {},
     onAddSightingClick: () -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf<String?>(null) }
+    var statusFilter by remember { mutableStateOf("all") } // "all", "draft", "complete"
     var selectedSort by remember { mutableStateOf(SightingSort.NEWEST) }
     var showSortMenu by remember { mutableStateOf(false) }
 
+    val draftCount = sightings.count { it.isDraft }
+    val completeCount = sightings.count { !it.isDraft }
+
     // Filter and Sort logic
-    val filteredSightings by remember(sightings, searchQuery, selectedCategory, selectedSort) {
+    val filteredSightings by remember(sightings, searchQuery, selectedCategory, statusFilter, selectedSort) {
         derivedStateOf {
             val query = searchQuery.trim().lowercase(Locale.US)
             val normalizedQuery = PlateOcrEngine.normalizePlate(searchQuery)
 
             var list = sightings.filter { sighting ->
+                val matchesStatus = when (statusFilter) {
+                    "draft" -> sighting.isDraft
+                    "complete" -> !sighting.isDraft
+                    else -> true
+                }
                 val matchesCategory = selectedCategory == null || sighting.category == selectedCategory
                 val matchesSearch = if (query.isBlank()) true else {
                     sighting.brand.lowercase(Locale.US).contains(query) ||
@@ -110,7 +121,7 @@ fun GarageScreen(
                             sighting.numberPlateRaw.lowercase(Locale.US).contains(query) ||
                             (normalizedQuery.isNotBlank() && sighting.numberPlateNormalized.contains(normalizedQuery))
                 }
-                matchesCategory && matchesSearch
+                matchesStatus && matchesCategory && matchesSearch
             }
 
             list = when (selectedSort) {
@@ -226,10 +237,14 @@ fun GarageScreen(
                 .padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            val isAll = selectedCategory == null
+            // 1. ALL
+            val isAll = statusFilter == "all" && selectedCategory == null
             FilterChip(
                 selected = isAll,
-                onClick = { selectedCategory = null },
+                onClick = {
+                    statusFilter = "all"
+                    selectedCategory = null
+                },
                 label = { Text("All (${sightings.size})", fontSize = 12.sp) },
                 colors = FilterChipDefaults.filterChipColors(
                     selectedContainerColor = SpotrGreen,
@@ -240,6 +255,46 @@ fun GarageScreen(
                 border = FilterChipDefaults.filterChipBorder(
                     enabled = true,
                     selected = isAll,
+                    borderColor = CharcoalBorder,
+                    selectedBorderColor = SpotrGreen
+                )
+            )
+
+            // 2. INCOMPLETE / DRAFTS FILTER CHIP
+            val isDrafts = statusFilter == "draft"
+            FilterChip(
+                selected = isDrafts,
+                onClick = { statusFilter = if (isDrafts) "all" else "draft" },
+                label = { Text("Incomplete ($draftCount)", fontSize = 12.sp) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = WarningAmber,
+                    selectedLabelColor = NearBlack,
+                    containerColor = CharcoalCard,
+                    labelColor = if (draftCount > 0) WarningAmber else TextWhite
+                ),
+                border = FilterChipDefaults.filterChipBorder(
+                    enabled = true,
+                    selected = isDrafts,
+                    borderColor = if (draftCount > 0) WarningAmber.copy(alpha = 0.6f) else CharcoalBorder,
+                    selectedBorderColor = WarningAmber
+                )
+            )
+
+            // 3. COMPLETED SIGHTINGS CHIP
+            val isComplete = statusFilter == "complete"
+            FilterChip(
+                selected = isComplete,
+                onClick = { statusFilter = if (isComplete) "all" else "complete" },
+                label = { Text("Completed ($completeCount)", fontSize = 12.sp) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = SpotrGreen,
+                    selectedLabelColor = NearBlack,
+                    containerColor = CharcoalCard,
+                    labelColor = TextWhite
+                ),
+                border = FilterChipDefaults.filterChipBorder(
+                    enabled = true,
+                    selected = isComplete,
                     borderColor = CharcoalBorder,
                     selectedBorderColor = SpotrGreen
                 )
@@ -345,7 +400,11 @@ fun VehicleCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(CharcoalCard)
-            .border(1.dp, CharcoalBorder, RoundedCornerShape(12.dp))
+            .border(
+                if (sighting.isDraft) 1.5.dp else 1.dp,
+                if (sighting.isDraft) WarningAmber else CharcoalBorder,
+                RoundedCornerShape(12.dp)
+            )
             .clickable(onClick = onClick)
     ) {
         // Thumbnail Box
@@ -385,8 +444,25 @@ fun VehicleCard(
                 )
             }
 
-            // Number of photos indicator
-            if (sighting.imagePaths.size > 1) {
+            // Status or number of photos indicator
+            if (sighting.isDraft) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(NearBlack.copy(alpha = 0.9f))
+                        .border(0.5.dp, WarningAmber, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "DRAFT",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = WarningAmber
+                    )
+                }
+            } else if (sighting.imagePaths.size > 1) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
@@ -411,25 +487,47 @@ fun VehicleCard(
                 .fillMaxWidth()
                 .padding(10.dp)
         ) {
+            val brandDisplay = if (sighting.brand.isNotBlank()) sighting.brand.uppercase() else if (sighting.isDraft) "UNNAMED DRAFT" else "CAR"
             Text(
-                text = sighting.brand.uppercase(),
+                text = brandDisplay,
                 style = MaterialTheme.typography.labelSmall.copy(
                     letterSpacing = 1.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold
                 ),
-                color = SpotrGreen,
+                color = if (sighting.isDraft && sighting.brand.isBlank()) WarningAmber else SpotrGreen,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
 
             Text(
-                text = sighting.model,
+                text = sighting.model.ifBlank { if (sighting.isDraft) "Tap to complete details" else "Vehicle" },
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                color = TextWhite,
+                color = if (sighting.model.isBlank()) TextDim else TextWhite,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+
+            // Missing fields chips for drafts
+            if (sighting.isDraft && sighting.missingFields.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    sighting.missingFields.take(2).forEach { tag ->
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(CarbonDark)
+                                .border(0.5.dp, WarningAmber.copy(alpha = 0.5f), RoundedCornerShape(3.dp))
+                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                        ) {
+                            Text(tag, fontSize = 8.sp, color = WarningAmber, maxLines = 1)
+                        }
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(4.dp))
 

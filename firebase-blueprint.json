@@ -59,6 +59,8 @@
         "garageId": { "type": "string", "description": "ID of garage" },
         "createdBy": { "type": "string", "description": "UID of contributor" },
         "creatorName": { "type": "string", "description": "Display name or email of contributor" },
+        "lastUpdatedBy": { "type": "string", "description": "UID or display name of the user who last updated this record" },
+        "status": { "type": "string", "enum": ["draft", "complete"], "description": "Completion state of sighting" },
         "category": { "type": "string", "description": "Vehicle category" },
         "brand": { "type": "string", "description": "Vehicle brand/make" },
         "model": { "type": "string", "description": "Vehicle model name" },
@@ -79,9 +81,7 @@
         "updatedAt": { "type": "string", "format": "date-time", "description": "Update timestamp via serverTimestamp()" }
       },
       "required": [
-        "id", "garageId", "createdBy", "category", "brand", "model",
-        "numberPlateNormalized", "primaryImagePath", "latitude", "longitude",
-        "sightingDate", "sightingTime", "createdAt", "updatedAt"
+        "id", "garageId", "createdBy", "status", "createdAt", "updatedAt"
       ]
     }
   },

@@ -16,6 +16,7 @@ import com.example.ui.auth.SignInScreen
 import com.example.ui.navigation.SpotrAppScaffold
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.theme.NearBlack
+import com.example.util.DiagnosticLogger
 
 class MainActivity : ComponentActivity() {
 
@@ -24,6 +25,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        DiagnosticLogger.runStartupDiagnostics(this)
 
         setContent {
             MyApplicationTheme {
@@ -38,7 +40,7 @@ class MainActivity : ComponentActivity() {
                         SignInScreen(
                             isLoading = uiState.isAuthLoading,
                             errorMessage = uiState.authErrorMessage,
-                            onSignInClick = { viewModel.signInWithGoogle() }
+                            onSignInClick = { viewModel.signInWithGoogle(this@MainActivity) }
                         )
                     } else {
                         SpotrAppScaffold(
@@ -50,12 +52,14 @@ class MainActivity : ComponentActivity() {
                             pendingRequestGarage = uiState.pendingRequestGarage,
                             isGarageLoading = uiState.isGarageLoading,
                             garageErrorMessage = uiState.garageErrorMessage,
+                            autoSaveStatus = uiState.autoSaveStatus,
+                            onDraftChanged = { sighting -> viewModel.onDraftFieldsChanged(sighting) },
                             onCreateGarage = { name -> viewModel.createGarage(name) },
                             onJoinGarage = { code -> viewModel.joinGarageWithCode(code) },
                             onCheckPendingStatus = { viewModel.checkPendingApproval() },
                             onApproveRequest = { req -> viewModel.approveJoinRequest(req) },
                             onRejectRequest = { req -> viewModel.rejectJoinRequest(req) },
-                            onSaveSighting = { sighting -> viewModel.saveSighting(sighting) },
+                            onSaveSighting = { sighting, isComplete -> viewModel.saveSightingExplicitly(sighting, isComplete) },
                             onDeleteSighting = { id -> viewModel.deleteSighting(id) },
                             onSignOut = { viewModel.signOut() }
                         )

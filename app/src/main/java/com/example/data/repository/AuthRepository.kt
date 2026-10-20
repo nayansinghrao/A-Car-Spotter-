@@ -1,6 +1,8 @@
 package com.example.data.repository
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.util.Log
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
@@ -14,6 +16,7 @@ import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.SetOptions
+import com.example.util.DiagnosticLogger
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -23,21 +26,36 @@ class AuthRepository(private val context: Context) {
 
     private val auth: FirebaseAuth = FirebaseAuth.getInstance()
     private val firestore = FirestoreProvider.get(context)
-    private val credentialManager = CredentialManager.create(context)
 
     val currentUser: FirebaseUser?
         get() = auth.currentUser
 
     fun observeAuthState(): Flow<FirebaseUser?> = callbackFlow {
         val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
-            trySend(firebaseAuth.currentUser)
+            val user = firebaseAuth.currentUser
+            DiagnosticLogger.logInfo(
+                tag = "AUTH_STATE",
+                message = if (user != null) "User active: ${user.email ?: user.uid}" else "User session is empty"
+            )
+            trySend(user)
         }
         auth.addAuthStateListener(listener)
         awaitClose { auth.removeAuthStateListener(listener) }
     }
 
-    suspend fun signInWithGoogle(): Result<FirebaseUser> {
+    suspend fun signInWithGoogle(activityContext: Context = context): Result<FirebaseUser> {
+        val resolvedActivity = findActivity(activityContext) ?: (activityContext as? Activity)
+        val launchContext = resolvedActivity ?: activityContext
+
+        DiagnosticLogger.logInfo(
+            tag = "AUTH",
+            message = "Starting Google Sign-In with CredentialManager",
+            details = "launchContext: ${launchContext::class.java.simpleName}, isActivity: ${launchContext is Activity}"
+        )
+
         return try {
+            val credentialManager = CredentialManager.create(launchContext)
+
             val serverClientId = context.getString(R.string.default_web_client_id)
             val signInWithGoogleOption = GetSignInWithGoogleOption.Builder(serverClientId)
                 .build()
@@ -46,11 +64,13 @@ class AuthRepository(private val context: Context) {
                 .addCredentialOption(signInWithGoogleOption)
                 .build()
 
+            DiagnosticLogger.logInfo("AUTH", "Launching CredentialManager selector UI...")
             val result = credentialManager.getCredential(
                 request = request,
-                context = context
+                context = launchContext
             )
 
+            DiagnosticLogger.logSuccess("AUTH", "Received Google ID token from selector UI")
             val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(result.credential.data)
             val authCredential = GoogleAuthProvider.getCredential(googleIdTokenCredential.idToken, null)
             val authResult = auth.signInWithCredential(authCredential).await()
@@ -59,14 +79,44 @@ class AuthRepository(private val context: Context) {
             // Sync user profile document in Firestore
             syncUserProfile(user)
 
+            DiagnosticLogger.logSuccess(
+                tag = "AUTH",
+                message = "Firebase authentication succeeded for: ${user.email ?: user.uid}"
+            )
+            DiagnosticLogger.showToast(launchContext, "Signed in successfully as ${user.email ?: "Spotter"}", isLong = false)
+
             Result.success(user)
         } catch (e: GetCredentialCancellationException) {
+            val code = "CANCELED (16)"
             Log.w("AuthRepository", "Sign-in cancelled by user")
+            DiagnosticLogger.logWarn(
+                tag = "AUTH",
+                message = "Google Sign-In selector was dismissed or cancelled by user",
+                errorCode = code
+            )
+            DiagnosticLogger.showToast(launchContext, "Sign-in was cancelled", isLong = false)
             Result.failure(e)
         } catch (e: Exception) {
-            Log.e("AuthRepository", "Sign-in error: ${e.message}", e)
+            val code = DiagnosticLogger.parseErrorCode(e)
+            Log.e("AuthRepository", "Sign-in error [$code]: ${e.message}", e)
+            DiagnosticLogger.logError(
+                tag = "AUTH",
+                message = "Sign-in failed with error code: $code",
+                errorCode = code,
+                throwable = e
+            )
+            DiagnosticLogger.showToast(launchContext, "Sign-in Error [$code]: ${e.localizedMessage ?: "Unknown error"}", isLong = true)
             Result.failure(e)
         }
+    }
+
+    private fun findActivity(ctx: Context): Activity? {
+        var current = ctx
+        while (current is ContextWrapper) {
+            if (current is Activity) return current
+            current = current.baseContext
+        }
+        return null
     }
 
     private suspend fun syncUserProfile(user: FirebaseUser) {

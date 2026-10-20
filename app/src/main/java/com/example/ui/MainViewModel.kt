@@ -1,6 +1,7 @@
 package com.example.ui
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.model.Garage
@@ -12,10 +13,18 @@ import com.example.data.repository.GarageRepository
 import com.example.data.repository.SightingRepository
 import com.google.firebase.auth.FirebaseUser
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+
+enum class AutoSaveStatus {
+    IDLE,
+    SAVING,
+    SAVED,
+    FAILED
+}
 
 data class MainUiState(
     val currentUser: FirebaseUser? = null,
@@ -29,8 +38,15 @@ data class MainUiState(
     val isGarageLoading: Boolean = false,
     val garageErrorMessage: String? = null,
 
-    val sightings: List<Sighting> = emptyList()
-)
+    val sightings: List<Sighting> = emptyList(),
+    val autoSaveStatus: AutoSaveStatus = AutoSaveStatus.IDLE
+) {
+    val draftSightings: List<Sighting>
+        get() = sightings.filter { it.isDraft }
+
+    val completeSightings: List<Sighting>
+        get() = sightings.filter { !it.isDraft }
+}
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -44,6 +60,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var garageObserveJob: Job? = null
     private var joinRequestsObserveJob: Job? = null
     private var sightingsObserveJob: Job? = null
+    private var autoSaveJob: Job? = null
 
     init {
         // Observe Firebase Auth state
@@ -104,18 +121,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         garageObserveJob?.cancel()
         joinRequestsObserveJob?.cancel()
         sightingsObserveJob?.cancel()
+        autoSaveJob?.cancel()
         _uiState.value = _uiState.value.copy(
             currentGarage = null,
             pendingJoinRequests = emptyList(),
             pendingRequestGarage = null,
-            sightings = emptyList()
+            sightings = emptyList(),
+            autoSaveStatus = AutoSaveStatus.IDLE
         )
     }
 
-    fun signInWithGoogle() {
+    fun signInWithGoogle(activityContext: Context? = null) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isAuthLoading = true, authErrorMessage = null)
-            val result = authRepo.signInWithGoogle()
+            val launchContext = activityContext ?: getApplication<Application>()
+            val result = authRepo.signInWithGoogle(launchContext)
             if (result.isFailure) {
                 val err = result.exceptionOrNull()
                 val message = if (err is androidx.credentials.exceptions.GetCredentialCancellationException) {
@@ -217,9 +237,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    suspend fun saveSighting(sighting: Sighting): Result<String> {
+    /**
+     * Debounced auto-save triggers 1500ms after user edits.
+     * Prevents overlapping saves and updates the stable record ID.
+     */
+    fun onDraftFieldsChanged(sighting: Sighting) {
+        val garageId = _uiState.value.currentGarage?.id ?: return
+        autoSaveJob?.cancel()
+        autoSaveJob = viewModelScope.launch {
+            delay(1500)
+            _uiState.value = _uiState.value.copy(autoSaveStatus = AutoSaveStatus.SAVING)
+            val draftSighting = sighting.copy(status = "draft")
+            val result = sightingRepo.upsertSighting(garageId, draftSighting)
+            if (result.isSuccess) {
+                _uiState.value = _uiState.value.copy(autoSaveStatus = AutoSaveStatus.SAVED)
+            } else {
+                _uiState.value = _uiState.value.copy(autoSaveStatus = AutoSaveStatus.FAILED)
+            }
+        }
+    }
+
+    /**
+     * Explicit save action for either Draft or Complete.
+     * Cancels any pending auto-save job and commits immediately.
+     */
+    suspend fun saveSightingExplicitly(sighting: Sighting, isComplete: Boolean): Result<String> {
         val garageId = _uiState.value.currentGarage?.id ?: return Result.failure(IllegalStateException("No active garage"))
-        return sightingRepo.addSighting(garageId, sighting)
+        autoSaveJob?.cancel()
+        _uiState.value = _uiState.value.copy(autoSaveStatus = AutoSaveStatus.SAVING)
+        val targetStatus = if (isComplete) "complete" else "draft"
+        val targetSighting = sighting.copy(status = targetStatus)
+        val result = sightingRepo.upsertSighting(garageId, targetSighting)
+        if (result.isSuccess) {
+            _uiState.value = _uiState.value.copy(autoSaveStatus = AutoSaveStatus.SAVED)
+        } else {
+            _uiState.value = _uiState.value.copy(autoSaveStatus = AutoSaveStatus.FAILED)
+        }
+        return result
+    }
+
+    suspend fun saveSighting(sighting: Sighting): Result<String> {
+        return saveSightingExplicitly(sighting, isComplete = sighting.isComplete)
+    }
+
+    fun resetAutoSaveStatus() {
+        _uiState.value = _uiState.value.copy(autoSaveStatus = AutoSaveStatus.IDLE)
     }
 
     fun deleteSighting(sightingId: String) {

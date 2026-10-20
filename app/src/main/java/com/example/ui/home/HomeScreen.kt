@@ -27,7 +27,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.PendingActions
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Speed
@@ -77,10 +79,13 @@ fun HomeScreen(
     onNavigateToGarage: () -> Unit,
     onNavigateToAddSighting: () -> Unit,
     onSightingClick: (Sighting) -> Unit,
+    onResumeDraft: (Sighting) -> Unit = {},
     onNavigateToProfile: () -> Unit
 ) {
     val context = LocalContext.current
 
+    val draftSightings = sightings.filter { it.isDraft }
+    val completedSightings = sightings.filter { !it.isDraft }
     val totalSightings = sightings.size
     val supercarsCount = sightings.count { it.category == VehicleCategory.SUPERCAR.label }
     val bikesCount = sightings.count { VehicleCategory.fromLabel(it.category).isBike }
@@ -214,6 +219,79 @@ fun HomeScreen(
             }
         }
 
+        // DEDICATED INCOMPLETE DRAFTS BANNER
+        if (draftSightings.isNotEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(CharcoalCard)
+                    .border(1.5.dp, WarningAmber, RoundedCornerShape(14.dp))
+                    .padding(16.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .clip(CircleShape)
+                                    .background(WarningAmber)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "INCOMPLETE DRAFTS (${draftSightings.size})",
+                                style = MaterialTheme.typography.titleSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    letterSpacing = 1.sp
+                                ),
+                                color = WarningAmber
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(WarningAmber.copy(alpha = 0.2f))
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                text = "ACTION REQUIRED",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = WarningAmber
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "Saved partial records missing photos, plates, or details. Tap any draft below to resume and complete.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextMuted
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        draftSightings.forEach { draft ->
+                            DraftSightingCard(
+                                draft = draft,
+                                onResume = { onResumeDraft(draft) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         // QUICK STAT METRICS (2x2 Grid)
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(
@@ -229,11 +307,11 @@ fun HomeScreen(
                     modifier = Modifier.weight(1f)
                 )
                 StatCard(
-                    title = "SUPERCARS",
-                    value = "$supercarsCount",
-                    sub = "Exotics logged",
-                    icon = Icons.Default.Speed,
-                    accent = AccentCyan,
+                    title = "INCOMPLETE DRAFTS",
+                    value = "${draftSightings.size}",
+                    sub = if (draftSightings.isEmpty()) "All completed" else "Pending completion",
+                    icon = Icons.Default.PendingActions,
+                    accent = if (draftSightings.isEmpty()) SpotrGreen else WarningAmber,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -242,11 +320,11 @@ fun HomeScreen(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 StatCard(
-                    title = "BIKES & SUPERS",
-                    value = "$bikesCount",
-                    sub = "Two-wheelers",
-                    icon = Icons.Default.TwoWheeler,
-                    accent = WarningAmber,
+                    title = "SUPERCARS",
+                    value = "$supercarsCount",
+                    sub = "Exotics logged",
+                    icon = Icons.Default.Speed,
+                    accent = AccentCyan,
                     modifier = Modifier.weight(1f)
                 )
                 StatCard(
@@ -433,3 +511,124 @@ private fun RecentCard(
         }
     }
 }
+
+@Composable
+private fun DraftSightingCard(
+    draft: Sighting,
+    onResume: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(200.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(CarbonDark)
+            .border(1.dp, WarningAmber.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
+            .clickable(onClick = onResume)
+            .padding(10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(95.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(CharcoalCard)
+        ) {
+            if (draft.primaryImagePath.isNotBlank()) {
+                AsyncImage(
+                    model = draft.primaryImagePath,
+                    contentDescription = "Draft thumbnail",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.DirectionsCar,
+                        contentDescription = null,
+                        tint = TextDim,
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(NearBlack.copy(alpha = 0.85f))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text("DRAFT", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = WarningAmber)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        val titleText = if (draft.brand.isNotBlank() || draft.model.isNotBlank()) {
+            "${draft.brand.ifBlank { "Unbranded" }} ${draft.model}".trim().take(22).uppercase()
+        } else {
+            "UNNAMED DRAFT"
+        }
+
+        Text(
+            text = titleText,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            ),
+            color = TextWhite,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+
+        val plateText = draft.numberPlateRaw.ifBlank { draft.numberPlateNormalized }
+        Text(
+            text = if (plateText.isNotBlank()) plateText else "Plate unconfirmed",
+            style = MaterialTheme.typography.labelSmall,
+            color = if (plateText.isNotBlank()) SpotrGreen else TextDim,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        val missing = draft.missingFields
+        if (missing.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                missing.take(2).forEach { tag ->
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(CharcoalCard)
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                    ) {
+                        Text(tag, fontSize = 8.sp, color = WarningAmber)
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
+        Button(
+            onClick = onResume,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = SpotrGreen,
+                contentColor = NearBlack
+            ),
+            shape = RoundedCornerShape(6.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 4.dp, horizontal = 8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(32.dp)
+        ) {
+            Icon(imageVector = Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(12.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+            Text("Resume", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+

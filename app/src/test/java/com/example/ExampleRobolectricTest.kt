@@ -44,4 +44,70 @@ class ExampleRobolectricTest {
         val normalized = PlateOcrEngine.normalizePlate("dl-01-c-4321")
         assertEquals("DL01C4321", normalized)
     }
+
+    @Test
+    fun `test CameraCaptureHelper creates valid output file`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val photoFile = com.example.util.CameraCaptureHelper.createOutputPhotoFile(context)
+        assertTrue(photoFile.name.startsWith("CAR_"))
+        assertTrue(photoFile.name.endsWith(".jpg"))
+        assertTrue(photoFile.parentFile?.exists() == true)
+    }
+
+    @Test
+    fun `test empty sighting draft derives all missing fields`() {
+        val emptyDraft = com.example.data.model.Sighting(
+            id = "draft-123",
+            garageId = "garage-abc",
+            status = "draft"
+        )
+        assertTrue(emptyDraft.isDraft)
+        org.junit.Assert.assertFalse(emptyDraft.isComplete)
+
+        val missing = emptyDraft.missingFields
+        assertTrue(missing.contains("Photo missing"))
+        assertTrue(missing.contains("Brand needed"))
+        assertTrue(missing.contains("Model needed"))
+        assertTrue(missing.contains("Plate unconfirmed"))
+        assertTrue(missing.contains("Location missing"))
+    }
+
+    @Test
+    fun `test partial sighting draft only identifies actual missing fields`() {
+        val partialDraft = com.example.data.model.Sighting(
+            id = "draft-456",
+            garageId = "garage-abc",
+            status = "draft",
+            brand = "Porsche",
+            model = "911 GT3 RS",
+            numberPlateRaw = "MH 12 AB 1234",
+            numberPlateNormalized = "MH12AB1234"
+        )
+        assertTrue(partialDraft.isDraft)
+        val missing = partialDraft.missingFields
+        assertTrue(missing.contains("Photo missing"))
+        assertTrue(missing.contains("Location missing"))
+        org.junit.Assert.assertFalse(missing.contains("Brand needed"))
+        org.junit.Assert.assertFalse(missing.contains("Model needed"))
+        org.junit.Assert.assertFalse(missing.contains("Plate unconfirmed"))
+    }
+
+    @Test
+    fun `test completed sighting with all fields has empty missing fields`() {
+        val completeSighting = com.example.data.model.Sighting(
+            id = "sighting-789",
+            garageId = "garage-abc",
+            status = "complete",
+            brand = "Ferrari",
+            model = "SF90 Stradale",
+            numberPlateRaw = "DL 01 C 4321",
+            numberPlateNormalized = "DL01C4321",
+            primaryImagePath = "data:image/jpeg;base64,...",
+            latitude = 19.0760,
+            longitude = 72.8777
+        )
+        assertTrue(completeSighting.isComplete)
+        org.junit.Assert.assertFalse(completeSighting.isDraft)
+        assertTrue(completeSighting.missingFields.isEmpty())
+    }
 }
