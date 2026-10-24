@@ -119,7 +119,7 @@ class AuthRepository(private val context: Context) {
         return null
     }
 
-    private suspend fun syncUserProfile(user: FirebaseUser) {
+    suspend fun syncUserProfile(user: FirebaseUser) {
         try {
             val userDocRef = firestore.collection("users").document(user.uid)
             val snapshot = userDocRef.get().await()

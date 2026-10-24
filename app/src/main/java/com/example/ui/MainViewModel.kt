@@ -28,11 +28,11 @@ enum class AutoSaveStatus {
 
 data class MainUiState(
     val currentUser: FirebaseUser? = null,
-    val userProfile: UserProfile? = MainViewModel.LOCAL_USER_PROFILE,
-    val isAuthLoading: Boolean = false,
+    val userProfile: UserProfile? = null,
+    val isAuthLoading: Boolean = true,
     val authErrorMessage: String? = null,
 
-    val currentGarage: Garage? = MainViewModel.LOCAL_GARAGE,
+    val currentGarage: Garage? = null,
     val pendingJoinRequests: List<JoinRequest> = emptyList(),
     val pendingRequestGarage: Garage? = null,
     val isGarageLoading: Boolean = false,
@@ -50,27 +50,6 @@ data class MainUiState(
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
-    companion object {
-        const val LOCAL_USER_ID = "local_spotter"
-        const val LOCAL_GARAGE_ID = "local_garage"
-
-        val LOCAL_GARAGE = Garage(
-            id = LOCAL_GARAGE_ID,
-            name = "My Private Garage",
-            ownerUid = LOCAL_USER_ID,
-            ownerEmail = "local@spotr.app",
-            memberUids = listOf(LOCAL_USER_ID),
-            inviteCode = "SPT-LOCAL"
-        )
-
-        val LOCAL_USER_PROFILE = UserProfile(
-            uid = LOCAL_USER_ID,
-            displayName = "Spotter",
-            email = "local@spotr.app",
-            currentGarageId = LOCAL_GARAGE_ID
-        )
-    }
-
     private val authRepo = AuthRepository(application)
     private val garageRepo = GarageRepository(application)
     private val sightingRepo = SightingRepository(application)
@@ -81,21 +60,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var garageObserveJob: Job? = null
     private var joinRequestsObserveJob: Job? = null
     private var sightingsObserveJob: Job? = null
+    private var myJoinRequestObserveJob: Job? = null
     private var autoSaveJob: Job? = null
 
     init {
-        // Immediately observe local garage so user lands directly on the main spotting interface
-        observeActiveGarage(LOCAL_GARAGE_ID)
+        // Immediate check of cached user session
+        val initialUser = authRepo.currentUser
+        if (initialUser != null) {
+            _uiState.value = _uiState.value.copy(
+                currentUser = initialUser,
+                isAuthLoading = false
+            )
+            loadUserData(initialUser.uid)
+        }
 
-        // Observe Firebase Auth state in background
+        // Asynchronous listener for Firebase Auth session changes
         viewModelScope.launch {
             authRepo.observeAuthState().collect { user ->
+                val prevUser = _uiState.value.currentUser
                 _uiState.value = _uiState.value.copy(
                     currentUser = user,
                     isAuthLoading = false
                 )
                 if (user != null) {
-                    loadUserData(user.uid)
+                    if (prevUser?.uid != user.uid || _uiState.value.currentGarage == null) {
+                        loadUserData(user.uid)
+                    }
                 } else {
                     resetGarageState()
                 }
@@ -105,12 +95,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun loadUserData(uid: String) {
         viewModelScope.launch {
-            val profile = authRepo.getUserProfile(uid)
+            _uiState.value = _uiState.value.copy(isGarageLoading = true)
+            var profile = authRepo.getUserProfile(uid)
+            if (profile == null) {
+                _uiState.value.currentUser?.let { authRepo.syncUserProfile(it) }
+                profile = authRepo.getUserProfile(uid)
+            }
             _uiState.value = _uiState.value.copy(userProfile = profile)
-            val garageId = profile?.currentGarageId.orEmpty()
+
+            var garageId = profile?.currentGarageId.orEmpty()
+            if (garageId.isBlank()) {
+                val existingGarage = garageRepo.findUserGarage(uid)
+                if (existingGarage != null) {
+                    garageId = existingGarage.id
+                    authRepo.updateUserCurrentGarage(garageId)
+                }
+            }
+
             if (garageId.isNotBlank()) {
                 observeActiveGarage(garageId)
+            } else {
+                _uiState.value = _uiState.value.copy(currentGarage = null)
             }
+            _uiState.value = _uiState.value.copy(isGarageLoading = false)
         }
     }
 
@@ -119,7 +126,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         joinRequestsObserveJob?.cancel()
         sightingsObserveJob?.cancel()
 
-        // 1. Observe Garage Doc
+        // 1. Observe Garage Document
         garageObserveJob = viewModelScope.launch {
             garageRepo.observeGarage(garageId).collect { garage ->
                 _uiState.value = _uiState.value.copy(currentGarage = garage)
@@ -133,7 +140,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // 3. Observe Sightings
+        // 3. Observe Vehicle Sightings from Cloud Firestore
         sightingsObserveJob = viewModelScope.launch {
             sightingRepo.observeSightings(garageId).collect { sightingsList ->
                 _uiState.value = _uiState.value.copy(sightings = sightingsList)
@@ -145,15 +152,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         garageObserveJob?.cancel()
         joinRequestsObserveJob?.cancel()
         sightingsObserveJob?.cancel()
+        myJoinRequestObserveJob?.cancel()
         autoSaveJob?.cancel()
         _uiState.value = _uiState.value.copy(
-            userProfile = LOCAL_USER_PROFILE,
-            currentGarage = LOCAL_GARAGE,
+            userProfile = null,
+            currentGarage = null,
             pendingJoinRequests = emptyList(),
             pendingRequestGarage = null,
+            sightings = emptyList(),
             autoSaveStatus = AutoSaveStatus.IDLE
         )
-        observeActiveGarage(LOCAL_GARAGE_ID)
     }
 
     fun signInWithGoogle(activityContext: Context? = null) {
@@ -179,6 +187,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun createGarage(name: String) {
+        val user = _uiState.value.currentUser
+        if (user == null) {
+            _uiState.value = _uiState.value.copy(
+                garageErrorMessage = "Please sign in with Google before creating a garage."
+            )
+            return
+        }
+
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isGarageLoading = true, garageErrorMessage = null)
             val result = garageRepo.createGarage(name)
@@ -198,6 +214,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun joinGarageWithCode(code: String) {
+        val user = _uiState.value.currentUser
+        if (user == null) {
+            _uiState.value = _uiState.value.copy(
+                garageErrorMessage = "Please sign in with Google to join a shared garage."
+            )
+            return
+        }
+
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isGarageLoading = true, garageErrorMessage = null)
             val targetGarage = garageRepo.findGarageByInviteCode(code)
@@ -212,7 +236,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (targetGarage.isFull) {
                 _uiState.value = _uiState.value.copy(
                     isGarageLoading = false,
-                    garageErrorMessage = "This garage already has 2 members. Cannot join."
+                    garageErrorMessage = "This garage already has 2 members (limit reached)."
                 )
                 return@launch
             }
@@ -221,10 +245,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.value = _uiState.value.copy(isGarageLoading = false)
             if (requestResult.isSuccess) {
                 _uiState.value = _uiState.value.copy(pendingRequestGarage = targetGarage)
+                listenForApproval(targetGarage.id, user.uid)
             } else {
                 _uiState.value = _uiState.value.copy(
                     garageErrorMessage = requestResult.exceptionOrNull()?.localizedMessage ?: "Failed to submit request"
                 )
+            }
+        }
+    }
+
+    private fun listenForApproval(garageId: String, uid: String) {
+        myJoinRequestObserveJob?.cancel()
+        myJoinRequestObserveJob = viewModelScope.launch {
+            garageRepo.observeMyJoinRequest(garageId, uid).collect { req ->
+                if (req != null && req.status == "approved") {
+                    authRepo.updateUserCurrentGarage(garageId)
+                    _uiState.value = _uiState.value.copy(pendingRequestGarage = null)
+                    observeActiveGarage(garageId)
+                    myJoinRequestObserveJob?.cancel()
+                }
             }
         }
     }
@@ -234,11 +273,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val pendingGarage = _uiState.value.pendingRequestGarage ?: return
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isGarageLoading = true)
-            val profile = authRepo.getUserProfile(user.uid)
-            _uiState.value = _uiState.value.copy(userProfile = profile, isGarageLoading = false)
-            if (profile?.currentGarageId == pendingGarage.id) {
-                _uiState.value = _uiState.value.copy(pendingRequestGarage = null)
+            val status = garageRepo.checkJoinRequestStatus(pendingGarage.id, user.uid)
+            if (status == "approved") {
+                authRepo.updateUserCurrentGarage(pendingGarage.id)
+                _uiState.value = _uiState.value.copy(pendingRequestGarage = null, isGarageLoading = false)
                 observeActiveGarage(pendingGarage.id)
+            } else {
+                _uiState.value = _uiState.value.copy(isGarageLoading = false)
             }
         }
     }
@@ -268,6 +309,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun onDraftFieldsChanged(sighting: Sighting) {
         val garageId = _uiState.value.currentGarage?.id ?: return
+        if (_uiState.value.currentUser == null) return
+
         autoSaveJob?.cancel()
         autoSaveJob = viewModelScope.launch {
             delay(1500)
@@ -287,7 +330,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Cancels any pending auto-save job and commits immediately.
      */
     suspend fun saveSightingExplicitly(sighting: Sighting, isComplete: Boolean): Result<String> {
-        val garageId = _uiState.value.currentGarage?.id ?: return Result.failure(IllegalStateException("No active garage"))
+        val garageId = _uiState.value.currentGarage?.id
+        if (garageId.isNullOrBlank()) {
+            _uiState.value = _uiState.value.copy(autoSaveStatus = AutoSaveStatus.FAILED)
+            return Result.failure(IllegalStateException("No active garage. Please create or join a garage."))
+        }
+        if (_uiState.value.currentUser == null) {
+            _uiState.value = _uiState.value.copy(autoSaveStatus = AutoSaveStatus.FAILED)
+            return Result.failure(IllegalStateException("Please sign in with Google to save records to Cloud Firestore."))
+        }
+
         autoSaveJob?.cancel()
         _uiState.value = _uiState.value.copy(autoSaveStatus = AutoSaveStatus.SAVING)
         val targetStatus = if (isComplete) "complete" else "draft"

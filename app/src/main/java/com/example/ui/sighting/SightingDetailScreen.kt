@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.model.Sighting
+import com.example.ui.components.SyncStatusBadge
 import com.example.ui.theme.AccentCyan
 import com.example.ui.theme.CarbonDark
 import com.example.ui.theme.CharcoalBorder
@@ -322,6 +323,15 @@ fun SightingDetailScreen(
                         letterSpacing = 1.sp
                     )
                 }
+
+                // Cloud Sync Status Badge
+                SyncStatusBadge(
+                    syncStatus = sighting.syncStatus,
+                    compact = false,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(14.dp)
+                )
             }
 
             // DETAILS CONTAINER

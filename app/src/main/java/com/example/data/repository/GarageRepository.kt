@@ -19,10 +19,6 @@ class GarageRepository(context: Context) {
     private val firestore = FirestoreProvider.get(context)
     private val auth = FirebaseAuth.getInstance()
 
-    private fun requireUserId(): String {
-        return auth.currentUser?.uid ?: error("User must be authenticated")
-    }
-
     suspend fun createGarage(garageName: String): Result<Garage> {
         val user = auth.currentUser ?: return Result.failure(IllegalStateException("Not authenticated"))
         return try {
@@ -31,7 +27,7 @@ class GarageRepository(context: Context) {
 
             val garageData = hashMapOf(
                 "id" to garageId,
-                "name" to garageName.trim(),
+                "name" to garageName.trim().ifBlank { "My Garage" },
                 "ownerUid" to user.uid,
                 "ownerEmail" to (user.email ?: ""),
                 "memberUids" to listOf(user.uid),
@@ -40,9 +36,20 @@ class GarageRepository(context: Context) {
                 "updatedAt" to FieldValue.serverTimestamp()
             )
 
+            // 1. Create garage document
             firestore.collection("garages").document(garageId).set(garageData).await()
 
-            // Update user profile with current garage
+            // 2. Create invite entry for inviteCode lookup by prospective members
+            val inviteData = hashMapOf(
+                "id" to garageId,
+                "name" to garageName.trim().ifBlank { "My Garage" },
+                "ownerUid" to user.uid,
+                "inviteCode" to inviteCode,
+                "createdAt" to FieldValue.serverTimestamp()
+            )
+            firestore.collection("garageInvites").document(inviteCode).set(inviteData).await()
+
+            // 3. Update current user's profile with garage ID
             firestore.collection("users").document(user.uid)
                 .update(
                     mapOf(
@@ -53,7 +60,7 @@ class GarageRepository(context: Context) {
 
             val created = Garage(
                 id = garageId,
-                name = garageName.trim(),
+                name = garageName.trim().ifBlank { "My Garage" },
                 ownerUid = user.uid,
                 ownerEmail = user.email ?: "",
                 memberUids = listOf(user.uid),
@@ -67,9 +74,35 @@ class GarageRepository(context: Context) {
     }
 
     suspend fun findGarageByInviteCode(code: String): Garage? {
+        val cleanCode = code.trim().uppercase(Locale.US)
+        if (cleanCode.isBlank()) return null
+        return try {
+            val inviteDoc = firestore.collection("garageInvites").document(cleanCode).get().await()
+            if (inviteDoc.exists()) {
+                val garageId = inviteDoc.getString("id") ?: return null
+                val name = inviteDoc.getString("name") ?: "Shared Garage"
+                val ownerUid = inviteDoc.getString("ownerUid") ?: ""
+                Garage(
+                    id = garageId,
+                    name = name,
+                    ownerUid = ownerUid,
+                    ownerEmail = "",
+                    memberUids = listOf(ownerUid),
+                    inviteCode = cleanCode
+                )
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            Log.e("GarageRepository", "Error finding garage by invite code $cleanCode: ${e.message}")
+            null
+        }
+    }
+
+    suspend fun findUserGarage(uid: String): Garage? {
         return try {
             val query = firestore.collection("garages")
-                .whereEqualTo("inviteCode", code.trim().uppercase(Locale.US))
+                .whereArrayContains("memberUids", uid)
                 .limit(1)
                 .get()
                 .await()
@@ -77,7 +110,7 @@ class GarageRepository(context: Context) {
             val doc = query.documents.firstOrNull() ?: return null
             Garage(
                 id = doc.getString("id") ?: doc.id,
-                name = doc.getString("name") ?: "",
+                name = doc.getString("name") ?: "My Garage",
                 ownerUid = doc.getString("ownerUid") ?: "",
                 ownerEmail = doc.getString("ownerEmail") ?: "",
                 memberUids = (doc.get("memberUids") as? List<*>)?.filterIsInstance<String>() ?: emptyList(),
@@ -86,7 +119,7 @@ class GarageRepository(context: Context) {
                 updatedAt = doc.getTimestamp("updatedAt")
             )
         } catch (e: Exception) {
-            Log.e("GarageRepository", "Error finding garage by code: ${e.message}")
+            Log.w("GarageRepository", "Error finding user garage: ${e.message}")
             null
         }
     }
@@ -119,22 +152,7 @@ class GarageRepository(context: Context) {
     }
 
     fun observeGarage(garageId: String): Flow<Garage?> = callbackFlow {
-        if (garageId == "local_garage" || auth.currentUser == null) {
-            trySend(
-                Garage(
-                    id = "local_garage",
-                    name = "My Private Garage",
-                    ownerUid = "local_spotter",
-                    ownerEmail = "local@spotr.app",
-                    memberUids = listOf("local_spotter"),
-                    inviteCode = "SPT-LOCAL"
-                )
-            )
-            awaitClose {}
-            return@callbackFlow
-        }
-
-        if (garageId.isBlank()) {
+        if (garageId.isBlank() || auth.currentUser == null) {
             trySend(null)
             awaitClose {}
             return@callbackFlow
@@ -170,7 +188,7 @@ class GarageRepository(context: Context) {
     }
 
     fun observeJoinRequests(garageId: String): Flow<List<JoinRequest>> = callbackFlow {
-        if (garageId == "local_garage" || auth.currentUser == null || garageId.isBlank()) {
+        if (garageId.isBlank() || auth.currentUser == null) {
             trySend(emptyList())
             awaitClose {}
             return@callbackFlow
@@ -206,13 +224,63 @@ class GarageRepository(context: Context) {
         awaitClose { listener.remove() }
     }
 
+    fun observeMyJoinRequest(garageId: String, uid: String): Flow<JoinRequest?> = callbackFlow {
+        if (garageId.isBlank() || uid.isBlank() || auth.currentUser == null) {
+            trySend(null)
+            awaitClose {}
+            return@callbackFlow
+        }
+
+        val listener = firestore.collection("garages")
+            .document(garageId)
+            .collection("joinRequests")
+            .document(uid)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    trySend(null)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null && snapshot.exists()) {
+                    val req = JoinRequest(
+                        id = snapshot.getString("id") ?: snapshot.id,
+                        garageId = snapshot.getString("garageId") ?: garageId,
+                        uid = snapshot.getString("uid") ?: uid,
+                        email = snapshot.getString("email") ?: "",
+                        displayName = snapshot.getString("displayName") ?: "",
+                        inviteCodeSubmitted = snapshot.getString("inviteCodeSubmitted") ?: "",
+                        status = snapshot.getString("status") ?: "pending",
+                        createdAt = snapshot.getTimestamp("createdAt")
+                    )
+                    trySend(req)
+                } else {
+                    trySend(null)
+                }
+            }
+
+        awaitClose { listener.remove() }
+    }
+
+    suspend fun checkJoinRequestStatus(garageId: String, uid: String): String? {
+        return try {
+            val doc = firestore.collection("garages")
+                .document(garageId)
+                .collection("joinRequests")
+                .document(uid)
+                .get()
+                .await()
+            if (doc.exists()) doc.getString("status") else null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     suspend fun approveJoinRequest(garage: Garage, request: JoinRequest): Result<Unit> {
         val user = auth.currentUser ?: return Result.failure(IllegalStateException("Not authenticated"))
         if (!garage.isOwner(user.uid)) {
             return Result.failure(IllegalAccessException("Only owner can approve join requests"))
         }
         if (garage.memberUids.size >= 2) {
-            return Result.failure(IllegalStateException("Garage already has 2 members"))
+            return Result.failure(IllegalStateException("Garage already has maximum 2 members"))
         }
 
         return try {
@@ -229,15 +297,6 @@ class GarageRepository(context: Context) {
                 .collection("joinRequests").document(request.uid)
                 .update("status", "approved")
                 .await()
-
-            // Update new member's current garage
-            firestore.collection("users").document(request.uid)
-                .update(
-                    mapOf(
-                        "currentGarageId" to garage.id,
-                        "updatedAt" to FieldValue.serverTimestamp()
-                    )
-                ).await()
 
             Result.success(Unit)
         } catch (e: Exception) {

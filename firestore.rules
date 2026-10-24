@@ -88,6 +88,15 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Garage invite lookup by code: Allows authenticated prospective members to find their friend's garage
+    match /garageInvites/{inviteCode} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if isAuthenticated() && (
+        resource.data.ownerUid == request.auth.uid || isGarageMember(resource.data.id)
+      );
+    }
+
     // Garages
     match /garages/{garageId} {
       allow read: if isAuthenticated() && (

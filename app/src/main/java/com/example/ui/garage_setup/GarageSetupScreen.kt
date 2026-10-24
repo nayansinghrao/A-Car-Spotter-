@@ -118,7 +118,7 @@ fun GarageSetupScreen(
             }
 
             Text(
-                text = "Signed in as $userEmail",
+                text = if (userEmail.isNotBlank()) "Signed in as $userEmail" else "Signed in with Google",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextMuted,
                 modifier = Modifier.padding(top = 4.dp, bottom = 24.dp)
@@ -364,7 +364,11 @@ fun GarageSetupScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             TextButton(onClick = onSignOut) {
-                Text("Sign out of $userEmail", color = TextDim, fontSize = 13.sp)
+                Text(
+                    text = if (userEmail.isNotBlank()) "Sign out of $userEmail" else "Sign out",
+                    color = TextDim,
+                    fontSize = 13.sp
+                )
             }
         }
     }

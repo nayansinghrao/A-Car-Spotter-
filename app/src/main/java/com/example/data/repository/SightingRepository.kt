@@ -7,13 +7,9 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.UUID
 
@@ -21,10 +17,9 @@ class SightingRepository(context: Context) {
 
     private val firestore = FirestoreProvider.get(context)
     private val auth = FirebaseAuth.getInstance()
-    private val localSightingsFlow = MutableStateFlow<List<Sighting>>(emptyList())
 
     private fun requireUserId(): String {
-        return auth.currentUser?.uid ?: "local_spotter"
+        return auth.currentUser?.uid ?: error("User must be authenticated to access Cloud Firestore")
     }
 
     private fun currentUserName(): String {
@@ -35,37 +30,23 @@ class SightingRepository(context: Context) {
     }
 
     /**
-     * Upserts a sighting record (draft or complete) under the given garage.
+     * Upserts a sighting record (draft or complete) under the given garage in Cloud Firestore.
      * Preserves the stable ID, original creator, and createdAt timestamp.
+     * Explicitly awaits Firestore confirmation before returning success.
      */
     suspend fun upsertSighting(garageId: String, sighting: Sighting): Result<String> {
-        val uid = requireUserId()
+        val user = auth.currentUser ?: return Result.failure(
+            IllegalStateException("User is not signed in. Please sign in with Google to save records.")
+        )
+        if (garageId.isBlank() || garageId == "local_garage") {
+            return Result.failure(
+                IllegalStateException("No valid Cloud Garage active. Please select or create a garage.")
+            )
+        }
+
+        val uid = user.uid
         val sightingId = if (sighting.id.isNotBlank()) sighting.id else UUID.randomUUID().toString()
         val userName = currentUserName()
-
-        // Local mode fallback when working with local garage or unauthenticated
-        if (garageId == "local_garage" || auth.currentUser == null) {
-            val now = com.google.firebase.Timestamp.now()
-            val existing = localSightingsFlow.value.find { it.id == sightingId }
-            val updated = sighting.copy(
-                id = sightingId,
-                garageId = garageId,
-                createdBy = existing?.createdBy ?: uid,
-                creatorName = existing?.creatorName ?: userName,
-                lastUpdatedBy = userName,
-                createdAt = existing?.createdAt ?: now,
-                updatedAt = now
-            )
-            val list = localSightingsFlow.value.toMutableList()
-            val idx = list.indexOfFirst { it.id == sightingId }
-            if (idx >= 0) {
-                list[idx] = updated
-            } else {
-                list.add(0, updated)
-            }
-            localSightingsFlow.value = list
-            return Result.success(sightingId)
-        }
 
         return try {
             val docRef = firestore.collection("garages").document(garageId)
@@ -73,12 +54,18 @@ class SightingRepository(context: Context) {
 
             val snapshot = docRef.get().await()
 
+            val primaryImage = if (sighting.primaryImagePath.isNotBlank()) {
+                sighting.primaryImagePath
+            } else {
+                sighting.imagePaths.firstOrNull().orEmpty()
+            }
+
             if (!snapshot.exists()) {
                 val data = hashMapOf(
                     "id" to sightingId,
                     "garageId" to garageId,
-                    "createdBy" to uid,
-                    "creatorName" to userName,
+                    "createdBy" to (sighting.createdBy.ifBlank { uid }),
+                    "creatorName" to (sighting.creatorName.ifBlank { userName }),
                     "lastUpdatedBy" to userName,
                     "status" to sighting.status,
                     "category" to sighting.category,
@@ -88,7 +75,7 @@ class SightingRepository(context: Context) {
                     "numberPlateNormalized" to sighting.numberPlateNormalized.trim(),
                     "plateOcrStatus" to sighting.plateOcrStatus,
                     "imagePaths" to sighting.imagePaths,
-                    "primaryImagePath" to sighting.primaryImagePath,
+                    "primaryImagePath" to primaryImage,
                     "locationName" to sighting.locationName.trim(),
                     "area" to sighting.area.trim(),
                     "city" to sighting.city.trim(),
@@ -112,7 +99,7 @@ class SightingRepository(context: Context) {
                     "numberPlateNormalized" to sighting.numberPlateNormalized.trim(),
                     "plateOcrStatus" to sighting.plateOcrStatus,
                     "imagePaths" to sighting.imagePaths,
-                    "primaryImagePath" to sighting.primaryImagePath,
+                    "primaryImagePath" to primaryImage,
                     "locationName" to sighting.locationName.trim(),
                     "area" to sighting.area.trim(),
                     "city" to sighting.city.trim(),
@@ -128,7 +115,7 @@ class SightingRepository(context: Context) {
 
             Result.success(sightingId)
         } catch (e: Exception) {
-            Log.e("SightingRepository", "Error upserting sighting: ${e.message}", e)
+            Log.e("SightingRepository", "Error upserting sighting to Firestore: ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -142,9 +129,8 @@ class SightingRepository(context: Context) {
     }
 
     suspend fun deleteSighting(garageId: String, sightingId: String): Result<Unit> {
-        if (garageId == "local_garage" || auth.currentUser == null) {
-            localSightingsFlow.value = localSightingsFlow.value.filter { it.id != sightingId }
-            return Result.success(Unit)
+        if (garageId.isBlank() || garageId == "local_garage" || auth.currentUser == null) {
+            return Result.failure(IllegalStateException("Cannot delete: user not authenticated or garage invalid"))
         }
         return try {
             firestore.collection("garages").document(garageId)
@@ -152,19 +138,19 @@ class SightingRepository(context: Context) {
                 .delete().await()
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("SightingRepository", "Error deleting sighting: ${e.message}", e)
+            Log.e("SightingRepository", "Error deleting sighting from Firestore: ${e.message}", e)
             Result.failure(e)
         }
     }
 
+    /**
+     * Observes real-time vehicle sightings under the specified garage from Cloud Firestore.
+     * Computes syncStatus ("syncing" or "synced") based on doc metadata pending writes.
+     */
     fun observeSightings(garageId: String): Flow<List<Sighting>> = callbackFlow {
-        if (garageId == "local_garage" || auth.currentUser == null) {
-            val job = CoroutineScope(Dispatchers.Default).launch {
-                localSightingsFlow.collect { list ->
-                    trySend(list)
-                }
-            }
-            awaitClose { job.cancel() }
+        if (garageId.isBlank() || garageId == "local_garage" || auth.currentUser == null) {
+            trySend(emptyList())
+            awaitClose {}
             return@callbackFlow
         }
 
@@ -174,13 +160,16 @@ class SightingRepository(context: Context) {
             .orderBy("createdAt", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    Log.w("SightingRepository", "Error observing sightings: ${error.message}")
+                    Log.w("SightingRepository", "Error observing sightings for garage $garageId: ${error.message}")
                     trySend(emptyList())
                     return@addSnapshotListener
                 }
 
                 val sightings = snapshot?.documents?.mapNotNull { doc ->
                     try {
+                        val hasPendingWrites = doc.metadata.hasPendingWrites()
+                        val syncStatus = if (hasPendingWrites) "syncing" else "synced"
+
                         Sighting(
                             id = doc.getString("id") ?: doc.id,
                             garageId = doc.getString("garageId") ?: garageId,
@@ -204,10 +193,12 @@ class SightingRepository(context: Context) {
                             sightingDate = doc.getString("sightingDate") ?: "",
                             sightingTime = doc.getString("sightingTime") ?: "",
                             notes = doc.getString("notes") ?: "",
+                            syncStatus = syncStatus,
                             createdAt = doc.getTimestamp("createdAt"),
                             updatedAt = doc.getTimestamp("updatedAt")
                         )
                     } catch (e: Exception) {
+                        Log.e("SightingRepository", "Error deserializing sighting ${doc.id}: ${e.message}")
                         null
                     }
                 } ?: emptyList()

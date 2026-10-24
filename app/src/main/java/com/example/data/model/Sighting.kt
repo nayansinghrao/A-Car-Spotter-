@@ -25,6 +25,7 @@ data class Sighting(
     val sightingDate: String = "", // YYYY-MM-DD
     val sightingTime: String = "", // HH:mm
     val notes: String = "",
+    val syncStatus: String = "synced", // "synced", "syncing", "failed"
     val createdAt: Timestamp? = null,
     val updatedAt: Timestamp? = null
 ) {
@@ -33,6 +34,15 @@ data class Sighting(
 
     val isComplete: Boolean
         get() = status == "complete"
+
+    val isSynced: Boolean
+        get() = syncStatus == "synced"
+
+    val isSyncing: Boolean
+        get() = syncStatus == "syncing"
+
+    val isSyncFailed: Boolean
+        get() = syncStatus == "failed"
 
     /**
      * Dynamically derives missing information labels from currently saved fields

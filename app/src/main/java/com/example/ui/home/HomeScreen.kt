@@ -57,6 +57,7 @@ import coil.compose.AsyncImage
 import com.example.data.model.Garage
 import com.example.data.model.Sighting
 import com.example.data.model.VehicleCategory
+import com.example.ui.components.SyncStatusBadge
 import com.example.ui.theme.AccentCyan
 import com.example.ui.theme.CarbonDark
 import com.example.ui.theme.CharcoalBorder
@@ -80,7 +81,8 @@ fun HomeScreen(
     onNavigateToAddSighting: () -> Unit,
     onSightingClick: (Sighting) -> Unit,
     onResumeDraft: (Sighting) -> Unit = {},
-    onNavigateToProfile: () -> Unit
+    onNavigateToProfile: () -> Unit,
+    onSignInClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
 
@@ -214,6 +216,50 @@ fun HomeScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = SpotrGreen
                         )
+                    }
+                }
+            }
+        } else {
+            // CLOUD SYNC NOT CONNECTED BANNER
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(CharcoalCard)
+                    .border(1.dp, CharcoalBorder, RoundedCornerShape(14.dp))
+                    .padding(16.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(WarningAmber)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "CLOUD SYNC NOT CONNECTED",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                letterSpacing = 1.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            ),
+                            color = WarningAmber
+                        )
+                    }
+                    Text(
+                        text = "Sign in with Google to enable real-time Cloud Firestore persistence, sync your vehicle sightings safely, and invite a friend to your shared fleet.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextMuted
+                    )
+                    Button(
+                        onClick = onSignInClick,
+                        colors = ButtonDefaults.buttonColors(containerColor = SpotrGreen, contentColor = NearBlack),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.padding(top = 4.dp)
+                    ) {
+                        Text("Sign In with Google", fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -487,6 +533,14 @@ private fun RecentCard(
             ) {
                 Text(sighting.category.uppercase(), fontSize = 8.sp, fontWeight = FontWeight.Bold, color = SpotrGreen)
             }
+
+            SyncStatusBadge(
+                syncStatus = sighting.syncStatus,
+                compact = true,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+            )
         }
 
         Column(modifier = Modifier.padding(10.dp)) {
@@ -551,15 +605,24 @@ private fun DraftSightingCard(
                 }
             }
 
-            Box(
+            Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(6.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(NearBlack.copy(alpha = 0.85f))
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .padding(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text("DRAFT", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = WarningAmber)
+                SyncStatusBadge(
+                    syncStatus = draft.syncStatus,
+                    compact = true
+                )
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(NearBlack.copy(alpha = 0.85f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text("DRAFT", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = WarningAmber)
+                }
             }
         }
 

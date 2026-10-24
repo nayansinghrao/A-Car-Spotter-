@@ -254,7 +254,8 @@ fun SpotrAppScaffold(
                                 onNavigateToAddSighting = { screenState = ScreenState.AddSighting() },
                                 onSightingClick = { sighting -> screenState = ScreenState.SightingDetail(sighting) },
                                 onResumeDraft = { draft -> screenState = ScreenState.AddSighting(draft) },
-                                onNavigateToProfile = { screenState = ScreenState.TabView(SpotrTab.PROFILE) }
+                                onNavigateToProfile = { screenState = ScreenState.TabView(SpotrTab.PROFILE) },
+                                onSignInClick = onSignInClick
                             )
                         }
 

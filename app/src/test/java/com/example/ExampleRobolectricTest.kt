@@ -110,4 +110,59 @@ class ExampleRobolectricTest {
         org.junit.Assert.assertFalse(completeSighting.isDraft)
         assertTrue(completeSighting.missingFields.isEmpty())
     }
+
+    @Test
+    fun `test sighting sync status flags`() {
+        val syncedSighting = com.example.data.model.Sighting(
+            id = "s-1",
+            garageId = "g-1",
+            syncStatus = "synced"
+        )
+        assertTrue(syncedSighting.isSynced)
+        org.junit.Assert.assertFalse(syncedSighting.isSyncing)
+        org.junit.Assert.assertFalse(syncedSighting.isSyncFailed)
+
+        val syncingSighting = com.example.data.model.Sighting(
+            id = "s-2",
+            garageId = "g-1",
+            syncStatus = "syncing"
+        )
+        assertTrue(syncingSighting.isSyncing)
+        org.junit.Assert.assertFalse(syncingSighting.isSynced)
+        org.junit.Assert.assertFalse(syncingSighting.isSyncFailed)
+
+        val failedSighting = com.example.data.model.Sighting(
+            id = "s-3",
+            garageId = "g-1",
+            syncStatus = "failed"
+        )
+        assertTrue(failedSighting.isSyncFailed)
+        org.junit.Assert.assertFalse(failedSighting.isSynced)
+        org.junit.Assert.assertFalse(failedSighting.isSyncing)
+    }
+
+    @Test
+    fun `test editing sighting preserves stable document ID`() {
+        val initialId = "stable-doc-id-12345"
+        val original = com.example.data.model.Sighting(
+            id = initialId,
+            garageId = "garage-main",
+            brand = "Lamborghini",
+            model = "Huracan Tecnica",
+            status = "draft"
+        )
+
+        // Simulate user editing model and completing draft
+        val edited = original.copy(
+            model = "Huracan STO",
+            status = "complete",
+            numberPlateRaw = "KA 01 MJ 9000",
+            numberPlateNormalized = "KA01MJ9000"
+        )
+
+        assertEquals("Document ID must be preserved across edits", initialId, edited.id)
+        assertEquals("Garage ID must be preserved across edits", "garage-main", edited.garageId)
+        assertEquals("Huracan STO", edited.model)
+        assertTrue(edited.isComplete)
+    }
 }

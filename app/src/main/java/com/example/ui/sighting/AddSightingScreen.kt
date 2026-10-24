@@ -1061,17 +1061,65 @@ fun AddSightingScreen(
                 )
             }
 
-            // SAVE ERROR
+            // SAVE ERROR WITH RETRY
             if (saveError != null) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(10.dp))
                         .background(CarbonDark)
-                        .border(1.dp, DangerRed, RoundedCornerShape(8.dp))
-                        .padding(12.dp)
+                        .border(1.5.dp, DangerRed, RoundedCornerShape(10.dp))
+                        .padding(14.dp)
                 ) {
-                    Text(text = saveError!!, color = DangerRed, style = MaterialTheme.typography.bodySmall)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.ErrorOutline,
+                                contentDescription = "Error",
+                                tint = DangerRed,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Save Failed: $saveError",
+                                color = DangerRed,
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                        }
+                        Text(
+                            text = "Your vehicle details have not been lost. Check your connection or sign-in state, then tap Retry below.",
+                            color = TextMuted,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            Button(
+                                onClick = {
+                                    isSavingExplicitly = true
+                                    val targetStatus = if (initialSighting?.isComplete == true) "complete" else "draft"
+                                    coroutineScope.launch {
+                                        val sighting = buildSighting(status = targetStatus)
+                                        val result = onSaveSighting(sighting, targetStatus == "complete")
+                                        isSavingExplicitly = false
+                                        if (result.isSuccess) {
+                                            saveError = null
+                                            Toast.makeText(context, "Saved successfully!", Toast.LENGTH_SHORT).show()
+                                            onSaveSuccess()
+                                        } else {
+                                            saveError = result.exceptionOrNull()?.localizedMessage ?: "Failed to save record"
+                                        }
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = DangerRed, contentColor = TextWhite),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.height(38.dp)
+                            ) {
+                                Text("Retry Save", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                        }
+                    }
                 }
             }
 

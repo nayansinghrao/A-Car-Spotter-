@@ -61,6 +61,7 @@ import coil.compose.AsyncImage
 import com.example.data.model.Sighting
 import com.example.data.model.VehicleCategory
 import com.example.ocr.PlateOcrEngine
+import com.example.ui.components.SyncStatusBadge
 import com.example.ui.theme.CarbonDark
 import com.example.ui.theme.CharcoalBorder
 import com.example.ui.theme.CharcoalCard
@@ -444,39 +445,43 @@ fun VehicleCard(
                 )
             }
 
-            // Status or number of photos indicator
-            if (sighting.isDraft) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(6.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(NearBlack.copy(alpha = 0.9f))
-                        .border(0.5.dp, WarningAmber, RoundedCornerShape(4.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        text = "DRAFT",
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = WarningAmber
-                    )
-                }
-            } else if (sighting.imagePaths.size > 1) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(6.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(NearBlack.copy(alpha = 0.85f))
-                        .padding(horizontal = 5.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        text = "+${sighting.imagePaths.size}",
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextWhite
-                    )
+            // Status, sync indicator, or number of photos
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                SyncStatusBadge(syncStatus = sighting.syncStatus, compact = true)
+                if (sighting.isDraft) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(NearBlack.copy(alpha = 0.9f))
+                            .border(0.5.dp, WarningAmber, RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "DRAFT",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = WarningAmber
+                        )
+                    }
+                } else if (sighting.imagePaths.size > 1) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(NearBlack.copy(alpha = 0.85f))
+                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "+${sighting.imagePaths.size}",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextWhite
+                        )
+                    }
                 }
             }
         }
