@@ -61,6 +61,95 @@ object ImageStorageHelper {
         }
     }
 
+    // High-performance LRU cache for decoded Base64 bitmaps (up to 30MB)
+    private val decodedBitmapCache = object : android.util.LruCache<String, Bitmap>(30 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: Bitmap): Int {
+            return value.byteCount
+        }
+    }
+
+    /**
+     * Determines whether the given string represents a Base64 encoded image or Data URI.
+     */
+    fun isBase64Image(source: String): Boolean {
+        if (source.length < 30) return false
+        if (source.startsWith("data:image/") || source.startsWith("data:")) return true
+        if (source.startsWith("http://") || source.startsWith("https://") ||
+            source.startsWith("content://") || source.startsWith("file://") ||
+            source.startsWith("/")
+        ) {
+            return false
+        }
+        // Common JPEG / PNG base64 prefixes or markers
+        return source.contains("base64,") || source.startsWith("/9j/") || source.startsWith("iVBOR")
+    }
+
+    /**
+     * Safely decodes a Base64 data URI or raw Base64 string into an Android Bitmap with LRU caching.
+     */
+    fun decodeBase64ToBitmap(data: String): Bitmap? {
+        if (data.isBlank()) return null
+        val cacheKey = if (data.length > 100) "${data.take(64)}_${data.takeLast(32)}_${data.length}" else data
+        decodedBitmapCache.get(cacheKey)?.let { return it }
+
+        return try {
+            val pureBase64 = if (data.contains("base64,")) {
+                data.substringAfter("base64,")
+            } else if (data.contains(",")) {
+                data.substringAfter(",")
+            } else {
+                data
+            }.trim().replace("\n", "").replace("\r", "")
+
+            val bytes = Base64.decode(pureBase64, Base64.DEFAULT)
+            if (bytes == null || bytes.isEmpty()) return null
+            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            if (bitmap != null) {
+                decodedBitmapCache.put(cacheKey, bitmap)
+            }
+            bitmap
+        } catch (e: Throwable) {
+            null
+        }
+    }
+
+    /**
+     * Resolves an image source into a Coil-compatible model:
+     * - Decodes Base64 data strings into Bitmap directly
+     * - Wraps local filesystem paths in java.io.File
+     * - Parses content:// and file:// URLs into android.net.Uri
+     */
+    fun resolveImageModel(source: Any?): Any? {
+        if (source == null) return null
+        if (source is Bitmap) return source
+        if (source is Uri) return source
+        if (source is File) return source
+
+        if (source is String) {
+            val trimmed = source.trim()
+            if (trimmed.isBlank()) return null
+            if (isBase64Image(trimmed)) {
+                return decodeBase64ToBitmap(trimmed)
+            }
+            if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+                return trimmed
+            }
+            if (trimmed.startsWith("content://") || trimmed.startsWith("file://")) {
+                return Uri.parse(trimmed)
+            }
+            if (trimmed.startsWith("/")) {
+                val f = File(trimmed)
+                return if (f.exists()) f else Uri.parse("file://$trimmed")
+            }
+            // Fallback attempt to decode as raw base64 if lengthy
+            val attemptBitmap = decodeBase64ToBitmap(trimmed)
+            if (attemptBitmap != null) return attemptBitmap
+            return trimmed
+        }
+
+        return source
+    }
+
     suspend fun loadBitmapFromUri(context: Context, uri: Uri): Bitmap? = withContext(Dispatchers.IO) {
         try {
             val inputStream: InputStream? = context.contentResolver.openInputStream(uri)

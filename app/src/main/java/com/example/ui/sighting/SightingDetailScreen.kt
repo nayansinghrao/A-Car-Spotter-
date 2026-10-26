@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.model.Sighting
 import com.example.ui.components.SyncStatusBadge
+import com.example.ui.components.VehicleImage
 import com.example.ui.theme.AccentCyan
 import com.example.ui.theme.CarbonDark
 import com.example.ui.theme.CharcoalBorder
@@ -91,7 +92,7 @@ fun SightingDetailScreen(
     val context = LocalContext.current
     var showDeleteDialog by remember { mutableStateOf(false) }
 
-    val images = if (sighting.imagePaths.isNotEmpty()) sighting.imagePaths else listOf(sighting.primaryImagePath).filter { it.isNotBlank() }
+    val images = sighting.allDisplayImages
     val pagerState = rememberPagerState(pageCount = { images.size.coerceAtLeast(1) })
 
     val canModify = sighting.createdBy == currentUserId || isOwner
@@ -270,11 +271,12 @@ fun SightingDetailScreen(
                         state = pagerState,
                         modifier = Modifier.fillMaxSize()
                     ) { page ->
-                        AsyncImage(
+                        VehicleImage(
                             model = images[page],
                             contentDescription = "Vehicle Photo ${page + 1}",
                             contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxSize(),
+                            placeholderIconSize = 64
                         )
                     }
 

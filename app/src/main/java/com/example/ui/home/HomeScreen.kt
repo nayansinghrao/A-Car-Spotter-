@@ -58,6 +58,7 @@ import com.example.data.model.Garage
 import com.example.data.model.Sighting
 import com.example.data.model.VehicleCategory
 import com.example.ui.components.SyncStatusBadge
+import com.example.ui.components.VehicleImage
 import com.example.ui.theme.AccentCyan
 import com.example.ui.theme.CarbonDark
 import com.example.ui.theme.CharcoalBorder
@@ -514,14 +515,12 @@ private fun RecentCard(
                 .height(110.dp)
                 .background(CarbonDark)
         ) {
-            if (sighting.primaryImagePath.isNotBlank()) {
-                AsyncImage(
-                    model = sighting.primaryImagePath,
-                    contentDescription = "${sighting.brand} ${sighting.model}",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
+            VehicleImage(
+                model = sighting.effectivePrimaryImage,
+                contentDescription = "${sighting.brand} ${sighting.model}",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
 
             Box(
                 modifier = Modifier
@@ -587,23 +586,12 @@ private fun DraftSightingCard(
                 .clip(RoundedCornerShape(8.dp))
                 .background(CharcoalCard)
         ) {
-            if (draft.primaryImagePath.isNotBlank()) {
-                AsyncImage(
-                    model = draft.primaryImagePath,
-                    contentDescription = "Draft thumbnail",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.DirectionsCar,
-                        contentDescription = null,
-                        tint = TextDim,
-                        modifier = Modifier.size(36.dp)
-                    )
-                }
-            }
+            VehicleImage(
+                model = draft.effectivePrimaryImage,
+                contentDescription = "Draft thumbnail",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
 
             Row(
                 modifier = Modifier

@@ -45,6 +45,20 @@ data class Sighting(
         get() = syncStatus == "failed"
 
     /**
+     * Resolves the primary vehicle image string, falling back to the first item
+     * in imagePaths if primaryImagePath is blank.
+     */
+    val effectivePrimaryImage: String
+        get() = primaryImagePath.ifBlank { imagePaths.firstOrNull().orEmpty() }
+
+    /**
+     * Aggregates all valid, non-blank images (both primaryImagePath and imagePaths)
+     * removing duplicates to ensure full photo carousel display.
+     */
+    val allDisplayImages: List<String>
+        get() = (listOf(primaryImagePath) + imagePaths).filter { it.isNotBlank() }.distinct()
+
+    /**
      * Dynamically derives missing information labels from currently saved fields
      * without relying on a static or stale list.
      */

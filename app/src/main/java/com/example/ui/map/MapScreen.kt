@@ -52,6 +52,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.example.ui.components.VehicleImage
 import com.example.data.model.Sighting
 import com.example.data.model.VehicleCategory
 import com.example.ui.theme.CarbonDark
@@ -300,18 +301,12 @@ private fun MapSightingCard(
                 .clip(RoundedCornerShape(8.dp))
                 .background(CarbonDark)
         ) {
-            if (sighting.primaryImagePath.isNotBlank()) {
-                AsyncImage(
-                    model = sighting.primaryImagePath,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Icon(imageVector = Icons.Default.DirectionsCar, contentDescription = null, tint = TextDim)
-                }
-            }
+            VehicleImage(
+                model = sighting.effectivePrimaryImage,
+                contentDescription = "${sighting.brand} ${sighting.model}",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
         }
 
         Spacer(modifier = Modifier.width(12.dp))

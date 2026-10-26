@@ -223,4 +223,59 @@ class ExampleRobolectricTest {
         assertTrue(garageFull.isFull)
         assertEquals(2, garageFull.memberCount)
     }
+
+    @Test
+    fun `test Base64 image detection and decoding`() {
+        // A minimal valid 1x1 red PNG encoded as base64
+        val base64Png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        val dataUriPng = "data:image/png;base64,$base64Png"
+
+        assertTrue(com.example.util.ImageStorageHelper.isBase64Image(dataUriPng))
+        assertTrue(com.example.util.ImageStorageHelper.isBase64Image(base64Png))
+        org.junit.Assert.assertFalse(com.example.util.ImageStorageHelper.isBase64Image("content://media/external/images/media/123"))
+        org.junit.Assert.assertFalse(com.example.util.ImageStorageHelper.isBase64Image("https://example.com/car.jpg"))
+        org.junit.Assert.assertFalse(com.example.util.ImageStorageHelper.isBase64Image(""))
+
+        val bitmap = com.example.util.ImageStorageHelper.decodeBase64ToBitmap(dataUriPng)
+        org.junit.Assert.assertNotNull(bitmap)
+        assertEquals(1, bitmap?.width)
+        assertEquals(1, bitmap?.height)
+
+        val resolved = com.example.util.ImageStorageHelper.resolveImageModel(dataUriPng)
+        org.junit.Assert.assertNotNull(resolved)
+        assertTrue(resolved is android.graphics.Bitmap)
+    }
+
+    @Test
+    fun `test sighting effectivePrimaryImage and allDisplayImages`() {
+        val sightingWithPrimary = com.example.data.model.Sighting(
+            id = "s-img-1",
+            garageId = "g-1",
+            primaryImagePath = "data:image/jpeg;base64,primary123",
+            imagePaths = listOf("data:image/jpeg;base64,primary123", "data:image/jpeg;base64,img2")
+        )
+        assertEquals("data:image/jpeg;base64,primary123", sightingWithPrimary.effectivePrimaryImage)
+        val allImages = sightingWithPrimary.allDisplayImages
+        assertEquals(2, allImages.size)
+        assertEquals("data:image/jpeg;base64,primary123", allImages[0])
+        assertEquals("data:image/jpeg;base64,img2", allImages[1])
+
+        val sightingWithEmptyPrimary = com.example.data.model.Sighting(
+            id = "s-img-2",
+            garageId = "g-1",
+            primaryImagePath = "",
+            imagePaths = listOf("data:image/jpeg;base64,firstFallback")
+        )
+        assertEquals("data:image/jpeg;base64,firstFallback", sightingWithEmptyPrimary.effectivePrimaryImage)
+        assertEquals(1, sightingWithEmptyPrimary.allDisplayImages.size)
+
+        val sightingNoImages = com.example.data.model.Sighting(
+            id = "s-img-3",
+            garageId = "g-1",
+            primaryImagePath = "",
+            imagePaths = emptyList()
+        )
+        assertEquals("", sightingNoImages.effectivePrimaryImage)
+        assertTrue(sightingNoImages.allDisplayImages.isEmpty())
+    }
 }

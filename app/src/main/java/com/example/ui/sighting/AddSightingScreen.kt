@@ -84,6 +84,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
+import com.example.ui.components.VehicleImage
 import com.example.data.model.Sighting
 import com.example.data.model.VehicleCategory
 import com.example.ocr.PlateOcrEngine
@@ -516,7 +517,7 @@ fun AddSightingScreen(
                                     )
                                     .clickable { primaryImageIndex = index }
                             ) {
-                                AsyncImage(
+                                VehicleImage(
                                     model = pair.first,
                                     contentDescription = "Vehicle Photo $index",
                                     contentScale = ContentScale.Crop,
