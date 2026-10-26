@@ -29,6 +29,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -60,9 +62,16 @@ import com.example.ui.theme.TextWhite
 fun SignInScreen(
     isLoading: Boolean,
     errorMessage: String?,
-    onSignInClick: () -> Unit
+    onSignInClick: () -> Unit,
+    onEmailSignIn: (email: String, pass: String) -> Unit = { _, _ -> },
+    onEmailRegister: (email: String, pass: String, name: String) -> Unit = { _, _, _ -> }
 ) {
     var showDiagnostics by remember { mutableStateOf(false) }
+    var showEmailAuth by remember { mutableStateOf(false) }
+    var isRegisterMode by remember { mutableStateOf(false) }
+    var emailInput by remember { mutableStateOf("") }
+    var passwordInput by remember { mutableStateOf("") }
+    var nameInput by remember { mutableStateOf("") }
 
     if (showDiagnostics) {
         DiagnosticLogsDialog(onDismissRequest = { showDiagnostics = false })
@@ -267,7 +276,116 @@ fun SignInScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
+
+                if (!showEmailAuth) {
+                    TextButton(
+                        onClick = { showEmailAuth = true },
+                        modifier = Modifier.testTag("toggle_email_auth_button")
+                    ) {
+                        Text("Or continue with Email & Password", color = TextMuted, fontSize = 13.sp)
+                    }
+                } else {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(CharcoalCard)
+                            .border(1.dp, CharcoalBorder, RoundedCornerShape(12.dp))
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (isRegisterMode) {
+                            OutlinedTextField(
+                                value = nameInput,
+                                onValueChange = { nameInput = it },
+                                label = { Text("Display Name") },
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = SpotrGreen,
+                                    unfocusedBorderColor = CharcoalBorder,
+                                    focusedTextColor = TextWhite,
+                                    unfocusedTextColor = TextWhite,
+                                    focusedContainerColor = CarbonDark,
+                                    unfocusedContainerColor = CarbonDark
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("email_name_input")
+                            )
+                        }
+                        OutlinedTextField(
+                            value = emailInput,
+                            onValueChange = { emailInput = it },
+                            label = { Text("Email Address") },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = SpotrGreen,
+                                unfocusedBorderColor = CharcoalBorder,
+                                focusedTextColor = TextWhite,
+                                unfocusedTextColor = TextWhite,
+                                focusedContainerColor = CarbonDark,
+                                unfocusedContainerColor = CarbonDark
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("email_address_input")
+                        )
+                        OutlinedTextField(
+                            value = passwordInput,
+                            onValueChange = { passwordInput = it },
+                            label = { Text("Password (min 6 chars)") },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = SpotrGreen,
+                                unfocusedBorderColor = CharcoalBorder,
+                                focusedTextColor = TextWhite,
+                                unfocusedTextColor = TextWhite,
+                                focusedContainerColor = CarbonDark,
+                                unfocusedContainerColor = CarbonDark
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("email_password_input")
+                        )
+                        Button(
+                            onClick = {
+                                if (isRegisterMode) {
+                                    onEmailRegister(emailInput, passwordInput, nameInput)
+                                } else {
+                                    onEmailSignIn(emailInput, passwordInput)
+                                }
+                            },
+                            enabled = !isLoading && emailInput.isNotBlank() && passwordInput.length >= 6,
+                            colors = ButtonDefaults.buttonColors(containerColor = SpotrGreen, contentColor = NearBlack),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("email_submit_button")
+                        ) {
+                            Text(if (isRegisterMode) "Register & Open Garage" else "Sign In", fontWeight = FontWeight.Bold)
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TextButton(onClick = { isRegisterMode = !isRegisterMode }) {
+                                Text(
+                                    text = if (isRegisterMode) "Already have account? Sign in" else "Need an account? Register",
+                                    fontSize = 11.sp,
+                                    color = SpotrGreen
+                                )
+                            }
+                            TextButton(onClick = { showEmailAuth = false }) {
+                                Text("Hide", fontSize = 11.sp, color = TextMuted)
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
 
                 Text(
                     text = "Zero-trust end-to-end security. Only authorized garage members can view sightings.",

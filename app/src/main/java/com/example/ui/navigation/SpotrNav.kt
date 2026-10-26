@@ -98,12 +98,12 @@ fun SpotrAppScaffold(
 ) {
     var screenState by remember {
         mutableStateOf<ScreenState>(
-            if (garage == null) ScreenState.GarageSetup else ScreenState.TabView(SpotrTab.HOME)
+            if (garage == null && !isGarageLoading) ScreenState.GarageSetup else ScreenState.TabView(SpotrTab.HOME)
         )
     }
 
-    // Keep screen state in sync if garage changes
-    if (garage == null && screenState !is ScreenState.GarageSetup) {
+    // Keep screen state in sync if garage changes, but never kick to GarageSetup while garage is still loading
+    if (garage == null && !isGarageLoading && screenState !is ScreenState.GarageSetup) {
         screenState = ScreenState.GarageSetup
     } else if (garage != null && screenState is ScreenState.GarageSetup) {
         screenState = ScreenState.TabView(SpotrTab.HOME)

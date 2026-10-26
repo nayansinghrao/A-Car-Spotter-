@@ -7,6 +7,7 @@ import com.example.data.model.JoinRequest
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -49,13 +50,17 @@ class GarageRepository(context: Context) {
             )
             firestore.collection("garageInvites").document(inviteCode).set(inviteData).await()
 
-            // 3. Update current user's profile with garage ID
+            // 3. Update current user's profile with garage ID (safe upsert with SetOptions.merge)
             firestore.collection("users").document(user.uid)
-                .update(
+                .set(
                     mapOf(
+                        "uid" to user.uid,
+                        "email" to (user.email ?: ""),
+                        "displayName" to (user.displayName ?: "Spotter"),
                         "currentGarageId" to garageId,
                         "updatedAt" to FieldValue.serverTimestamp()
-                    )
+                    ),
+                    SetOptions.merge()
                 ).await()
 
             val created = Garage(
@@ -101,6 +106,29 @@ class GarageRepository(context: Context) {
 
     suspend fun findUserGarage(uid: String): Garage? {
         return try {
+            // 1. First check user's saved currentGarageId directly
+            val userDoc = firestore.collection("users").document(uid).get().await()
+            val currentGarageId = userDoc.getString("currentGarageId")
+            if (!currentGarageId.isNullOrBlank()) {
+                val garageDoc = firestore.collection("garages").document(currentGarageId).get().await()
+                if (garageDoc.exists()) {
+                    val members = (garageDoc.get("memberUids") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+                    if (members.contains(uid)) {
+                        return Garage(
+                            id = garageDoc.getString("id") ?: garageDoc.id,
+                            name = garageDoc.getString("name") ?: "My Garage",
+                            ownerUid = garageDoc.getString("ownerUid") ?: "",
+                            ownerEmail = garageDoc.getString("ownerEmail") ?: "",
+                            memberUids = members,
+                            inviteCode = garageDoc.getString("inviteCode") ?: "",
+                            createdAt = garageDoc.getTimestamp("createdAt"),
+                            updatedAt = garageDoc.getTimestamp("updatedAt")
+                        )
+                    }
+                }
+            }
+
+            // 2. Fall back to whereArrayContains query
             val query = firestore.collection("garages")
                 .whereArrayContains("memberUids", uid)
                 .limit(1)
@@ -297,6 +325,16 @@ class GarageRepository(context: Context) {
                 .collection("joinRequests").document(request.uid)
                 .update("status", "approved")
                 .await()
+
+            // Update approved member's profile with active garage ID
+            firestore.collection("users").document(request.uid)
+                .set(
+                    mapOf(
+                        "currentGarageId" to garage.id,
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    ),
+                    SetOptions.merge()
+                ).await()
 
             Result.success(Unit)
         } catch (e: Exception) {

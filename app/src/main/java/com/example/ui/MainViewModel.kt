@@ -103,17 +103,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             _uiState.value = _uiState.value.copy(userProfile = profile)
 
-            var garageId = profile?.currentGarageId.orEmpty()
-            if (garageId.isBlank()) {
-                val existingGarage = garageRepo.findUserGarage(uid)
-                if (existingGarage != null) {
-                    garageId = existingGarage.id
-                    authRepo.updateUserCurrentGarage(garageId)
-                }
-            }
-
-            if (garageId.isNotBlank()) {
-                observeActiveGarage(garageId)
+            val existingGarage = garageRepo.findUserGarage(uid)
+            if (existingGarage != null) {
+                _uiState.value = _uiState.value.copy(currentGarage = existingGarage)
+                authRepo.updateUserCurrentGarage(existingGarage.id)
+                observeActiveGarage(existingGarage.id)
             } else {
                 _uiState.value = _uiState.value.copy(currentGarage = null)
             }
@@ -177,6 +171,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     err?.localizedMessage ?: "Failed to sign in with Google"
                 }
                 _uiState.value = _uiState.value.copy(isAuthLoading = false, authErrorMessage = message)
+            }
+        }
+    }
+
+    fun signInWithEmail(email: String, pass: String) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isAuthLoading = true, authErrorMessage = null)
+            val result = authRepo.signInWithEmail(email, pass)
+            if (result.isFailure) {
+                _uiState.value = _uiState.value.copy(
+                    isAuthLoading = false,
+                    authErrorMessage = result.exceptionOrNull()?.localizedMessage ?: "Failed to sign in"
+                )
+            }
+        }
+    }
+
+    fun registerWithEmail(email: String, pass: String, name: String) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isAuthLoading = true, authErrorMessage = null)
+            val result = authRepo.registerWithEmail(email, pass, name)
+            if (result.isFailure) {
+                _uiState.value = _uiState.value.copy(
+                    isAuthLoading = false,
+                    authErrorMessage = result.exceptionOrNull()?.localizedMessage ?: "Failed to register"
+                )
             }
         }
     }

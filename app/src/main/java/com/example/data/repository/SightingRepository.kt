@@ -52,66 +52,49 @@ class SightingRepository(context: Context) {
             val docRef = firestore.collection("garages").document(garageId)
                 .collection("sightings").document(sightingId)
 
-            val snapshot = docRef.get().await()
-
             val primaryImage = if (sighting.primaryImagePath.isNotBlank()) {
                 sighting.primaryImagePath
             } else {
                 sighting.imagePaths.firstOrNull().orEmpty()
             }
 
-            if (!snapshot.exists()) {
-                val data = hashMapOf(
-                    "id" to sightingId,
-                    "garageId" to garageId,
-                    "createdBy" to (sighting.createdBy.ifBlank { uid }),
-                    "creatorName" to (sighting.creatorName.ifBlank { userName }),
-                    "lastUpdatedBy" to userName,
-                    "status" to sighting.status,
-                    "category" to sighting.category,
-                    "brand" to sighting.brand.trim(),
-                    "model" to sighting.model.trim(),
-                    "numberPlateRaw" to sighting.numberPlateRaw.trim(),
-                    "numberPlateNormalized" to sighting.numberPlateNormalized.trim(),
-                    "plateOcrStatus" to sighting.plateOcrStatus,
-                    "imagePaths" to sighting.imagePaths,
-                    "primaryImagePath" to primaryImage,
-                    "locationName" to sighting.locationName.trim(),
-                    "area" to sighting.area.trim(),
-                    "city" to sighting.city.trim(),
-                    "latitude" to sighting.latitude,
-                    "longitude" to sighting.longitude,
-                    "sightingDate" to sighting.sightingDate,
-                    "sightingTime" to sighting.sightingTime,
-                    "notes" to sighting.notes.trim(),
-                    "createdAt" to FieldValue.serverTimestamp(),
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-                docRef.set(data).await()
+            // Check if document exists to preserve initial creation timestamp
+            val snapshot = try { docRef.get().await() } catch (e: Exception) { null }
+            val existingCreatedAt = snapshot?.getTimestamp("createdAt") ?: sighting.createdAt
+
+            val data = hashMapOf<String, Any>(
+                "id" to sightingId,
+                "garageId" to garageId,
+                "createdBy" to (sighting.createdBy.ifBlank { uid }),
+                "creatorName" to (sighting.creatorName.ifBlank { userName }),
+                "lastUpdatedBy" to userName,
+                "status" to sighting.status,
+                "category" to sighting.category,
+                "brand" to sighting.brand.trim(),
+                "model" to sighting.model.trim(),
+                "numberPlateRaw" to sighting.numberPlateRaw.trim(),
+                "numberPlateNormalized" to sighting.numberPlateNormalized.trim(),
+                "plateOcrStatus" to sighting.plateOcrStatus,
+                "imagePaths" to sighting.imagePaths,
+                "primaryImagePath" to primaryImage,
+                "locationName" to sighting.locationName.trim(),
+                "area" to sighting.area.trim(),
+                "city" to sighting.city.trim(),
+                "latitude" to sighting.latitude,
+                "longitude" to sighting.longitude,
+                "sightingDate" to sighting.sightingDate,
+                "sightingTime" to sighting.sightingTime,
+                "notes" to sighting.notes.trim(),
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+
+            if (existingCreatedAt != null) {
+                data["createdAt"] = existingCreatedAt
             } else {
-                val updateData = hashMapOf(
-                    "lastUpdatedBy" to userName,
-                    "status" to sighting.status,
-                    "category" to sighting.category,
-                    "brand" to sighting.brand.trim(),
-                    "model" to sighting.model.trim(),
-                    "numberPlateRaw" to sighting.numberPlateRaw.trim(),
-                    "numberPlateNormalized" to sighting.numberPlateNormalized.trim(),
-                    "plateOcrStatus" to sighting.plateOcrStatus,
-                    "imagePaths" to sighting.imagePaths,
-                    "primaryImagePath" to primaryImage,
-                    "locationName" to sighting.locationName.trim(),
-                    "area" to sighting.area.trim(),
-                    "city" to sighting.city.trim(),
-                    "latitude" to sighting.latitude,
-                    "longitude" to sighting.longitude,
-                    "sightingDate" to sighting.sightingDate,
-                    "sightingTime" to sighting.sightingTime,
-                    "notes" to sighting.notes.trim(),
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-                docRef.update(updateData as Map<String, Any>).await()
+                data["createdAt"] = FieldValue.serverTimestamp()
             }
+
+            docRef.set(data, com.google.firebase.firestore.SetOptions.merge()).await()
 
             Result.success(sightingId)
         } catch (e: Exception) {
@@ -157,7 +140,6 @@ class SightingRepository(context: Context) {
         val listener: ListenerRegistration = firestore.collection("garages")
             .document(garageId)
             .collection("sightings")
-            .orderBy("createdAt", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     Log.w("SightingRepository", "Error observing sightings for garage $garageId: ${error.message}")
@@ -203,7 +185,12 @@ class SightingRepository(context: Context) {
                     }
                 } ?: emptyList()
 
-                trySend(sightings)
+                val sortedSightings = sightings.sortedWith(
+                    compareByDescending<Sighting> { it.createdAt?.seconds ?: Long.MAX_VALUE }
+                        .thenByDescending { it.sightingDate + it.sightingTime }
+                )
+
+                trySend(sortedSightings)
             }
 
         awaitClose { listener.remove() }

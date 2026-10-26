@@ -165,4 +165,62 @@ class ExampleRobolectricTest {
         assertEquals("Huracan STO", edited.model)
         assertTrue(edited.isComplete)
     }
+
+    @Test
+    fun `test in-memory sorting of sightings puts newest or pending first`() {
+        val s1 = com.example.data.model.Sighting(
+            id = "s-1",
+            garageId = "g-1",
+            brand = "Old Car",
+            createdAt = com.google.firebase.Timestamp(1000, 0),
+            sightingDate = "2026-01-01",
+            sightingTime = "10:00"
+        )
+        val s2 = com.example.data.model.Sighting(
+            id = "s-2",
+            garageId = "g-1",
+            brand = "Newer Car",
+            createdAt = com.google.firebase.Timestamp(2000, 0),
+            sightingDate = "2026-02-01",
+            sightingTime = "12:00"
+        )
+        val sPending = com.example.data.model.Sighting(
+            id = "s-pending",
+            garageId = "g-1",
+            brand = "Just Added Car",
+            createdAt = null, // pending server timestamp
+            sightingDate = "2026-03-01",
+            sightingTime = "14:00"
+        )
+
+        val list = listOf(s1, s2, sPending)
+        val sorted = list.sortedWith(
+            compareByDescending<com.example.data.model.Sighting> { it.createdAt?.seconds ?: Long.MAX_VALUE }
+                .thenByDescending { it.sightingDate + it.sightingTime }
+        )
+
+        // The pending one (createdAt == null -> Long.MAX_VALUE) should be first
+        assertEquals("s-pending", sorted[0].id)
+        assertEquals("s-2", sorted[1].id)
+        assertEquals("s-1", sorted[2].id)
+    }
+
+    @Test
+    fun `test garage 2-member limit check`() {
+        val garageOneMember = com.example.data.model.Garage(
+            id = "g-1",
+            name = "Supercars Club",
+            ownerUid = "user-1",
+            memberUids = listOf("user-1"),
+            inviteCode = "SPT-TEST"
+        )
+        org.junit.Assert.assertFalse(garageOneMember.isFull)
+        assertEquals(1, garageOneMember.memberCount)
+
+        val garageFull = garageOneMember.copy(
+            memberUids = listOf("user-1", "user-2")
+        )
+        assertTrue(garageFull.isFull)
+        assertEquals(2, garageFull.memberCount)
+    }
 }

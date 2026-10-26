@@ -38,8 +38,19 @@ object ImageStorageHelper {
             outputStream.close()
 
             // Generate compact base64 representation for instant 2-person real-time Firestore sync
+            val thumbBitmap = if (rotatedBitmap.width > 480 || rotatedBitmap.height > 480) {
+                val scale = 480f / maxOf(rotatedBitmap.width, rotatedBitmap.height)
+                Bitmap.createScaledBitmap(
+                    rotatedBitmap,
+                    (rotatedBitmap.width * scale).toInt().coerceAtLeast(1),
+                    (rotatedBitmap.height * scale).toInt().coerceAtLeast(1),
+                    true
+                )
+            } else {
+                rotatedBitmap
+            }
             val byteStream = ByteArrayOutputStream()
-            rotatedBitmap.compress(Bitmap.CompressFormat.JPEG, 70, byteStream)
+            thumbBitmap.compress(Bitmap.CompressFormat.JPEG, 65, byteStream)
             val base64Bytes = byteStream.toByteArray()
             val base64String = "data:image/jpeg;base64," + Base64.encodeToString(base64Bytes, Base64.NO_WRAP)
 

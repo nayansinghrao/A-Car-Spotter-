@@ -169,14 +169,45 @@ class AuthRepository(private val context: Context) {
         val user = currentUser ?: return
         try {
             firestore.collection("users").document(user.uid)
-                .update(
+                .set(
                     mapOf(
+                        "uid" to user.uid,
+                        "email" to (user.email ?: ""),
                         "currentGarageId" to garageId,
                         "updatedAt" to FieldValue.serverTimestamp()
-                    )
+                    ),
+                    SetOptions.merge()
                 ).await()
         } catch (e: Exception) {
             Log.e("AuthRepository", "Failed to update currentGarageId: ${e.message}")
+        }
+    }
+
+    suspend fun signInWithEmail(email: String, pass: String): Result<FirebaseUser> {
+        return try {
+            val authResult = auth.signInWithEmailAndPassword(email.trim(), pass).await()
+            val user = authResult.user ?: throw IllegalStateException("User null after sign in")
+            syncUserProfile(user)
+            Result.success(user)
+        } catch (e: Exception) {
+            Log.e("AuthRepository", "Email sign in error: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun registerWithEmail(email: String, pass: String, name: String): Result<FirebaseUser> {
+        return try {
+            val authResult = auth.createUserWithEmailAndPassword(email.trim(), pass).await()
+            val user = authResult.user ?: throw IllegalStateException("User null after registration")
+            val profileUpdates = com.google.firebase.auth.UserProfileChangeRequest.Builder()
+                .setDisplayName(name.trim().ifBlank { "Spotter" })
+                .build()
+            user.updateProfile(profileUpdates).await()
+            syncUserProfile(user)
+            Result.success(user)
+        } catch (e: Exception) {
+            Log.e("AuthRepository", "Email registration error: ${e.message}", e)
+            Result.failure(e)
         }
     }
 

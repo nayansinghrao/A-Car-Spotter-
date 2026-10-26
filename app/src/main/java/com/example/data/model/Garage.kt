@@ -15,6 +15,9 @@ data class Garage(
     val isFull: Boolean
         get() = memberUids.size >= 2
 
+    val memberCount: Int
+        get() = memberUids.size
+
     fun isOwner(uid: String): Boolean = ownerUid == uid
     fun isMember(uid: String): Boolean = memberUids.contains(uid)
 }

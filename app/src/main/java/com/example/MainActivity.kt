@@ -54,8 +54,8 @@ class MainActivity : ComponentActivity() {
                     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
                     when {
-                        // 1. Initial asynchronous session restoration
-                        uiState.isAuthLoading -> {
+                        // 1. Initial asynchronous session restoration and garage loading
+                        uiState.isAuthLoading || (uiState.currentUser != null && uiState.isGarageLoading && uiState.currentGarage == null) -> {
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -88,12 +88,14 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        // 2. Unauthenticated: Google Sign-In with real error diagnosis
+                        // 2. Unauthenticated: Google Sign-In with real error diagnosis & Email fallback
                         uiState.currentUser == null -> {
                             SignInScreen(
                                 isLoading = uiState.isAuthLoading,
                                 errorMessage = uiState.authErrorMessage,
-                                onSignInClick = { viewModel.signInWithGoogle(this@MainActivity) }
+                                onSignInClick = { viewModel.signInWithGoogle(this@MainActivity) },
+                                onEmailSignIn = { email, pass -> viewModel.signInWithEmail(email, pass) },
+                                onEmailRegister = { email, pass, name -> viewModel.registerWithEmail(email, pass, name) }
                             )
                         }
 
