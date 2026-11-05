@@ -278,4 +278,63 @@ class ExampleRobolectricTest {
         assertEquals("", sightingNoImages.effectivePrimaryImage)
         assertTrue(sightingNoImages.allDisplayImages.isEmpty())
     }
+
+    @Test
+    fun `test Room SightingEntity insertion, query, and mapper roundtrip`() = kotlinx.coroutines.runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val db = com.example.data.local.SpotrDatabase.getInstance(context)
+        val dao = db.sightingDao()
+
+        val sighting = com.example.data.model.Sighting(
+            id = "s-offline-1",
+            garageId = "g-offline",
+            brand = "Ferrari",
+            model = "SF90 Stradale",
+            category = "Supercar",
+            numberPlateRaw = "MH 01 AB 0001",
+            numberPlateNormalized = "MH01AB0001",
+            syncStatus = "pending",
+            imagePaths = listOf("path1", "path2"),
+            primaryImagePath = "path1"
+        )
+
+        // Convert to entity and insert
+        val entity = with(com.example.data.local.SightingMappers) { sighting.toEntity(syncStatusOverride = "pending") }
+        dao.insertOrUpdate(entity)
+
+        // Retrieve by ID
+        val retrievedEntity = dao.getSightingById("s-offline-1")
+        org.junit.Assert.assertNotNull(retrievedEntity)
+        assertEquals("Ferrari", retrievedEntity?.brand)
+        assertEquals("SF90 Stradale", retrievedEntity?.model)
+        assertEquals("pending", retrievedEntity?.syncStatus)
+
+        // Convert back to domain model and verify
+        val domain = with(com.example.data.local.SightingMappers) { retrievedEntity!!.toDomainModel() }
+        assertEquals(sighting.id, domain.id)
+        assertEquals(sighting.brand, domain.brand)
+        assertEquals(sighting.model, domain.model)
+        assertEquals(sighting.numberPlateNormalized, domain.numberPlateNormalized)
+        assertEquals(2, domain.imagePaths.size)
+        assertEquals("path1", domain.effectivePrimaryImage)
+
+        // Test pending sync query
+        val pendingList = dao.getPendingSyncSightings()
+        assertTrue(pendingList.any { it.id == "s-offline-1" })
+
+        // Update sync status to synced
+        dao.updateSyncStatus("s-offline-1", "synced")
+        val updated = dao.getSightingById("s-offline-1")
+        assertEquals("synced", updated?.syncStatus)
+
+        // Test soft deletion (markForDeletion)
+        dao.markForDeletion("s-offline-1")
+        val marked = dao.getSightingById("s-offline-1")
+        assertTrue(marked?.isPendingDelete == true)
+
+        // Permanently delete
+        dao.deletePermanently("s-offline-1")
+        val deleted = dao.getSightingById("s-offline-1")
+        org.junit.Assert.assertNull(deleted)
+    }
 }

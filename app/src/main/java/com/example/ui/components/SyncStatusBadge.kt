@@ -34,6 +34,7 @@ fun SyncStatusBadge(
 ) {
     val (icon, text, color) = when (syncStatus) {
         "syncing" -> Triple(Icons.Default.CloudUpload, "Syncing...", WarningAmber)
+        "pending" -> Triple(Icons.Default.CloudUpload, "Pending Sync", WarningAmber)
         "failed" -> Triple(Icons.Default.CloudOff, "Sync Failed", DangerRed)
         else -> Triple(Icons.Default.CloudDone, "Synced", SpotrGreen)
     }

@@ -39,7 +39,9 @@ data class MainUiState(
     val garageErrorMessage: String? = null,
 
     val sightings: List<Sighting> = emptyList(),
-    val autoSaveStatus: AutoSaveStatus = AutoSaveStatus.IDLE
+    val autoSaveStatus: AutoSaveStatus = AutoSaveStatus.IDLE,
+    val isOnline: Boolean = true,
+    val pendingSyncCount: Int = 0
 ) {
     val draftSightings: List<Sighting>
         get() = sightings.filter { it.isDraft }
@@ -53,6 +55,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val authRepo = AuthRepository(application)
     private val garageRepo = GarageRepository(application)
     private val sightingRepo = SightingRepository(application)
+    private val networkMonitor = com.example.util.NetworkConnectivityMonitor(application)
 
     private val _uiState = MutableStateFlow(MainUiState())
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
@@ -60,10 +63,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var garageObserveJob: Job? = null
     private var joinRequestsObserveJob: Job? = null
     private var sightingsObserveJob: Job? = null
+    private var remoteSyncJob: Job? = null
+    private var pendingSyncJob: Job? = null
     private var myJoinRequestObserveJob: Job? = null
     private var autoSaveJob: Job? = null
 
     init {
+        // Monitor network connectivity in real-time
+        viewModelScope.launch {
+            networkMonitor.isOnlineFlow.collect { isOnline ->
+                val wasOffline = !_uiState.value.isOnline
+                _uiState.value = _uiState.value.copy(isOnline = isOnline)
+                // When internet connectivity returns, trigger immediate sync of pending changes
+                if (isOnline && wasOffline) {
+                    sightingRepo.syncPendingChangesNow()
+                }
+            }
+        }
+
+        // Monitor pending sync item count
+        pendingSyncJob = viewModelScope.launch {
+            sightingRepo.observePendingSyncCount().collect { count ->
+                _uiState.value = _uiState.value.copy(pendingSyncCount = count)
+            }
+        }
+
         // Immediate check of cached user session
         val initialUser = authRepo.currentUser
         if (initialUser != null) {
@@ -119,6 +143,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         garageObserveJob?.cancel()
         joinRequestsObserveJob?.cancel()
         sightingsObserveJob?.cancel()
+        remoteSyncJob?.cancel()
 
         // 1. Observe Garage Document
         garageObserveJob = viewModelScope.launch {
@@ -134,11 +159,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // 3. Observe Vehicle Sightings from Cloud Firestore
+        // 3. Observe Vehicle Sightings from local Room Database (Single source of truth)
         sightingsObserveJob = viewModelScope.launch {
             sightingRepo.observeSightings(garageId).collect { sightingsList ->
                 _uiState.value = _uiState.value.copy(sightings = sightingsList)
             }
+        }
+
+        // 4. Ingest remote Firestore sightings into Room
+        remoteSyncJob = viewModelScope.launch {
+            sightingRepo.startRemoteFirestoreSync(garageId).collect { }
         }
     }
 
@@ -146,6 +176,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         garageObserveJob?.cancel()
         joinRequestsObserveJob?.cancel()
         sightingsObserveJob?.cancel()
+        remoteSyncJob?.cancel()
         myJoinRequestObserveJob?.cancel()
         autoSaveJob?.cancel()
         _uiState.value = _uiState.value.copy(
@@ -328,8 +359,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Prevents overlapping saves and updates the stable record ID.
      */
     fun onDraftFieldsChanged(sighting: Sighting) {
-        val garageId = _uiState.value.currentGarage?.id ?: return
-        if (_uiState.value.currentUser == null) return
+        val garageId = _uiState.value.currentGarage?.id ?: "local_garage"
 
         autoSaveJob?.cancel()
         autoSaveJob = viewModelScope.launch {
@@ -347,18 +377,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Explicit save action for either Draft or Complete.
-     * Cancels any pending auto-save job and commits immediately.
+     * Cancels any pending auto-save job and commits locally to Room immediately.
+     * Never blocks or fails simply because the device is offline.
      */
     suspend fun saveSightingExplicitly(sighting: Sighting, isComplete: Boolean): Result<String> {
-        val garageId = _uiState.value.currentGarage?.id
-        if (garageId.isNullOrBlank()) {
-            _uiState.value = _uiState.value.copy(autoSaveStatus = AutoSaveStatus.FAILED)
-            return Result.failure(IllegalStateException("No active garage. Please create or join a garage."))
-        }
-        if (_uiState.value.currentUser == null) {
-            _uiState.value = _uiState.value.copy(autoSaveStatus = AutoSaveStatus.FAILED)
-            return Result.failure(IllegalStateException("Please sign in with Google to save records to Cloud Firestore."))
-        }
+        val garageId = _uiState.value.currentGarage?.id ?: "local_garage"
 
         autoSaveJob?.cancel()
         _uiState.value = _uiState.value.copy(autoSaveStatus = AutoSaveStatus.SAVING)

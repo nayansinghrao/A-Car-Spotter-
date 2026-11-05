@@ -78,6 +78,8 @@ fun HomeScreen(
     garage: Garage?,
     sightings: List<Sighting>,
     currentUserId: String,
+    isOnline: Boolean = true,
+    pendingSyncCount: Int = 0,
     onNavigateToGarage: () -> Unit,
     onNavigateToAddSighting: () -> Unit,
     onSightingClick: (Sighting) -> Unit,
@@ -149,6 +151,55 @@ fun HomeScreen(
                     tint = NearBlack,
                     modifier = Modifier.size(26.dp)
                 )
+            }
+        }
+
+        // OFFLINE & PENDING SYNC STATUS BANNER
+        if (!isOnline || pendingSyncCount > 0) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(CarbonDark)
+                    .border(1.dp, if (!isOnline) WarningAmber.copy(alpha = 0.8f) else SpotrGreen.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(if (!isOnline) WarningAmber else SpotrGreen)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (!isOnline) "Offline Mode — Changes saved locally" else "Cloud Sync Active",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                            color = TextWhite
+                        )
+                    }
+
+                    if (pendingSyncCount > 0) {
+                        Text(
+                            text = "$pendingSyncCount pending sync",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = WarningAmber
+                        )
+                    } else if (isOnline) {
+                        Text(
+                            text = "All synced",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = SpotrGreen
+                        )
+                    }
+                }
             }
         }
 

@@ -111,6 +111,8 @@ class MainActivity : ComponentActivity() {
                                 isGarageLoading = uiState.isGarageLoading,
                                 garageErrorMessage = uiState.garageErrorMessage,
                                 autoSaveStatus = uiState.autoSaveStatus,
+                                isOnline = uiState.isOnline,
+                                pendingSyncCount = uiState.pendingSyncCount,
                                 onDraftChanged = { sighting -> viewModel.onDraftFieldsChanged(sighting) },
                                 onCreateGarage = { name -> viewModel.createGarage(name) },
                                 onJoinGarage = { code -> viewModel.joinGarageWithCode(code) },
